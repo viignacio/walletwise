@@ -56,7 +56,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="credit"
         options={{
-          title: 'Credit',
+          title: 'Installments',
           tabBarIcon: tabIcon('card-outline', 'card'),
         }}
       />

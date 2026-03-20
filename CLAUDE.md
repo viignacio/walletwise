@@ -33,8 +33,8 @@ WalletWise is a household and personal finance app. All monetary amounts are PHP
 **Routing** (Expo Router, file-based):
 - [app/_layout.tsx](app/_layout.tsx) — root layout; subscribes to Supabase auth state, redirects between `(auth)` and `(app)` groups
 - `app/(auth)/` — login, register, OAuth callback
-- `app/(app)/(tabs)/` — four-tab protected shell: **Dashboard, Wallet, Lending, Settings**
-  - Note: the Lending tab file is currently named `credit.tsx` — the spec names it "Lending"
+- `app/(app)/(tabs)/` — four-tab protected shell: **Dashboard, Wallet, Installments, Settings**
+  - The Installments tab file is `credit.tsx`; tab label is "Installments"; internal types use `LendingRecord`
 
 **Two independent modules** — data never crosses between them:
 1. **Household Wallet** (`wallet` tab) — shared household ledger visible to all household members
@@ -52,11 +52,11 @@ WalletWise is a household and personal finance app. All monetary amounts are PHP
 - `HouseholdSettings`: household_id, low_balance_threshold, low_balance_notification_enabled
 
 **Credit Tracker** (scoped to User — owner only):
-- `Card`: id, user_id, name, credit_limit, billing_cutoff_day, due_date_day, color
-- `Borrower`: id, user_id, name, notes
-- `CreditRecord`: id, user_id, card_id, borrower_id, description, total_amount, transaction_date, payment_scheme (direct|installment), installment_months, monthly_amount, start_payment_month, expected_card_charge_month, status (active|settled|overdue)
-- `Payment`: id, user_id, credit_record_id, month_index, due_date, expected_amount, actual_amount, paid_date, status (upcoming|paid|underpaid|overdue)
-- `NotificationSettings`: user_id, type, reference_id, lead_days
+- `Card`: id, user_id, name, credit_limit, billing_cutoff_day, due_date_day, color — table: `cards`
+- `Installment`: id, user_id, name, notes — table: `installments` (renamed from `borrowers` in migration 006)
+- `LendingRecord`: id, user_id, card_id, installment_id, description, total_amount, transaction_date, payment_scheme (direct|installment), installment_months, monthly_amount, start_payment_month, expected_card_charge_month, status (active|settled|overdue) — table: `lending_records`
+- `Payment`: id, user_id, lending_record_id, month_index, due_date, expected_amount, actual_amount, paid_date, status (upcoming|paid|underpaid|overdue) — table: `payments`
+- `NotificationSetting`: user_id, type, reference_id, lead_days, enabled — table: `notification_settings`
 
 ## Critical Business Logic
 
@@ -90,13 +90,12 @@ When adding a CreditRecord, display: _"This charge will first appear on your [Mo
 | Wallet — Monthly View | Wallet | Default view, current month on open, prev/next nav |
 | Wallet — YTD View | Wallet | Summary table; tap row → Monthly View |
 | Add/Edit Transaction | Wallet | |
-| Lending Overview | Lending | Per-borrower total owed across all active records |
-| Borrower Detail | Lending | All active credit records for a borrower |
-| Record Detail | Lending | Full payment timeline for a record |
-| Log Payment | Lending | Cascade preview before confirming |
-| Add Credit Record | Lending | Card, borrower, scheme, amounts, dates |
-| Cards | Lending | CRUD |
-| Borrowers | Lending | CRUD |
+| Credit Overview | Installments | Cards + installments (users) list; active records grouped by user; `credit.tsx` |
+| Record Detail | Installments | Full payment timeline for a LendingRecord; `record-detail.tsx` |
+| Log Payment | Installments | Amount input → cascade preview → confirm; `log-payment.tsx` |
+| Add Installment Record | Installments | Card, user, scheme, amounts, dates — inline user creation supported; `add-credit-record.tsx` |
+| Add/Edit Card | Installments | Card CRUD with color picker; `add-card.tsx` |
+| Add/Edit User | Installments | Installment (user/borrower) CRUD; `add-installment.tsx` |
 | Settings — General | Settings | Profile, household, notification preferences |
 | Settings — Wallet | Settings | Low balance threshold |
 | Settings — Credit | Settings | Card due date and borrower reminder lead times |
@@ -116,10 +115,10 @@ Message formats are defined in the spec. Key rule: always include the current ba
 |---|---|---|
 | 1 — Foundation | ✅ Complete | Auth (email + Google OAuth), household creation/invite, app shell, settings |
 | 2 — Household Wallet | ✅ Complete | Transaction logging, balance display, monthly view, low balance alerts, push notifications |
-| 3 — Cards & Borrowers | Pending | Card CRUD, borrower CRUD, billing cycle logic |
-| 4 — Credit Records | Pending | CreditRecord creation, payment schedule generation, cascade logic |
-| 5 — Notifications | Pending | Card due date reminders, borrower reminders, configurable lead times |
-| 6 — Polish | Pending | Dashboard, auto-categorization, edge cases, SQLite offline cache |
+| 3 — Cards & Installments | ✅ Complete | Card CRUD, installment (user) CRUD, billing cycle derivation, credit tab overview |
+| 4 — Credit Records | ✅ Complete | LendingRecord creation, payment schedule generation, cascade logic, record detail, log payment |
+| 5 — Notifications | ✅ Complete | Card due date reminders, installment payment reminders, configurable lead times (local scheduled notifications) |
+| 6 — Polish | ✅ Complete | Dashboard screen (balance hero + upcoming card dues + recent activity), auto-categorization, overdue payment transitions (`markOverduePayments` on startup). SQLite offline cache deferred. |
 
 ## Constraints
 

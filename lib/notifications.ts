@@ -1,33 +1,45 @@
-import * as Notifications from 'expo-notifications'
 import * as Device from 'expo-device'
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
 import { supabase } from './supabase'
 
-// Show notifications when app is in the foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-})
+// Expo Go does not support expo-notifications in SDK 53+.
+// Use lazy require() so the module is never imported in Expo Go — a top-level
+// import would throw at module evaluation time regardless of runtime guards.
+const IS_EXPO_GO = Constants.appOwnership === 'expo'
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const notifs = () => require('expo-notifications') as typeof import('expo-notifications')
+
+// Show notifications when app is in the foreground (dev builds / production only)
+if (!IS_EXPO_GO) {
+  notifs().setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    }),
+  })
+}
 
 // ── Push token registration ──────────────────────────────────
 
 export async function registerPushToken(userId: string): Promise<void> {
+  if (IS_EXPO_GO) return // Remote push not supported in Expo Go (SDK 53+)
   if (!Device.isDevice) return // Push not available on simulator
 
+  const N = notifs()
+
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
+    await N.setNotificationChannelAsync('default', {
       name: 'default',
-      importance: Notifications.AndroidImportance.DEFAULT,
+      importance: N.AndroidImportance.DEFAULT,
     })
   }
 
-  const { status } = await Notifications.requestPermissionsAsync()
+  const { status } = await N.requestPermissionsAsync()
   if (status !== 'granted') return
 
   const projectId =
@@ -40,7 +52,7 @@ export async function registerPushToken(userId: string): Promise<void> {
   }
 
   try {
-    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId })
+    const { data: token } = await N.getExpoPushTokenAsync({ projectId })
     await supabase
       .from('push_tokens')
       .upsert({ user_id: userId, token }, { onConflict: 'user_id,token' })

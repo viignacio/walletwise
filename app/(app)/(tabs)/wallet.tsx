@@ -13,6 +13,8 @@ import Animated, {
   Easing,
   FadeIn,
   FadeInDown,
+  FadeOut,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -21,7 +23,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { Colors, TextStyles, Spacing, Radius, Layout, Shadows } from '../../../constants'
+import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontWeight, FontFamily } from '../../../constants'
 import { supabase } from '../../../lib/supabase'
 import { getProfile } from '../../../lib/profile'
 import {
@@ -51,16 +53,47 @@ const MONTH_FULL = [
 // ── Sub-components ────────────────────────────────────────────
 
 function BalanceSummaryCard({ balance }: { balance: MonthlyBalance }) {
+  const [expanded, setExpanded] = useState(false)
+  const chevronRotation = useSharedValue(0)
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value}deg` }],
+  }))
+
+  const toggle = () => {
+    const next = !expanded
+    setExpanded(next)
+    chevronRotation.value = withTiming(next ? 180 : 0, { duration: 250, easing: Easing.out(Easing.cubic) })
+  }
+
   return (
-    <Animated.View entering={FadeInDown.duration(350).easing(Easing.out(Easing.cubic))} style={styles.balanceCard}>
-      <BalanceRow label="Opening Balance" amount={balance.openingBalance} neutral />
-      <View style={styles.balanceDivider} />
-      <BalanceRow label="+ Income" amount={balance.income} positive />
-      <BalanceRow label="− Expenses" amount={balance.expenses} negative />
-      <View style={styles.balanceDivider} />
-      <BalanceRow label="Net Movement" amount={balance.netMovement} colored />
-      <View style={[styles.balanceDivider, { backgroundColor: Colors.border }]} />
-      <BalanceRow label="Closing Balance" amount={balance.closingBalance} neutral large />
+    <Animated.View
+      entering={FadeInDown.duration(350).easing(Easing.out(Easing.cubic))}
+      layout={LinearTransition.duration(250).easing(Easing.out(Easing.cubic))}
+      style={styles.balanceCard}
+    >
+      {expanded && (
+        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
+          <BalanceRow label="Opening Balance" amount={balance.openingBalance} neutral />
+          <View style={styles.balanceDivider} />
+          <BalanceRow label="+ Income" amount={balance.income} positive />
+          <BalanceRow label="− Expenses" amount={balance.expenses} negative />
+          <View style={styles.balanceDivider} />
+          <BalanceRow label="Net Movement" amount={balance.netMovement} colored />
+          <View style={[styles.balanceDivider, { backgroundColor: Colors.border }]} />
+        </Animated.View>
+      )}
+      <Pressable onPress={toggle} style={styles.balanceClosingRow} hitSlop={8}>
+        <Text style={styles.balanceLabelLarge}>Closing Balance</Text>
+        <View style={styles.balanceClosingRight}>
+          <Text style={[styles.balanceAmountLarge, { color: Colors.text.primary }]}>
+            {formatAmount(balance.closingBalance)}
+          </Text>
+          <Animated.View style={chevronStyle}>
+            <Ionicons name="chevron-down" size={16} color={Colors.text.muted} />
+          </Animated.View>
+        </View>
+      </Pressable>
     </Animated.View>
   )
 }
@@ -126,7 +159,7 @@ const TransactionItem = memo(function TransactionItem({
           {transaction.description}
         </Text>
         <Text style={styles.txSub}>
-          {transaction.category} · {authorName} · {formatDate(transaction.date)}
+          {authorName.split(' ')[0]} · {transaction.category}
         </Text>
       </View>
       <Text style={[styles.txAmount, { color: isIncome ? Colors.income : Colors.expense }]}>
@@ -487,8 +520,8 @@ const styles = StyleSheet.create({
     margin: Spacing[4],
     marginBottom: Spacing[1],
     backgroundColor: Colors.border,
-    borderRadius: Spacing[3] - 2, // 10 — nearest non-token value kept
-    padding: 3,
+    borderRadius: Radius.md,
+    padding: Spacing[1],
   },
   toggleBtn: {
     flex: 1,
@@ -547,6 +580,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     marginVertical: 6,
   },
+  balanceClosingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  balanceClosingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+  },
   balanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -585,13 +629,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing[3],
-    paddingHorizontal: 14,
+    paddingHorizontal: Spacing[4],
     gap: Spacing[3],
   },
   txIcon: {
     width: 36,
     height: 36,
-    borderRadius: Spacing[3] - 2, // 10
+    borderRadius: Radius.sm,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -601,7 +645,8 @@ const styles = StyleSheet.create({
   },
   txDescription: {
     ...TextStyles.bodySm,
-    fontWeight: '600' as const,
+    fontWeight: FontWeight.semiBold,
+    fontFamily: FontFamily.semiBold,
     color: Colors.text.primary,
   },
   txSub: {
@@ -614,7 +659,7 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: Colors.border,
-    marginLeft: 62,
+    marginLeft: 64,
   },
   emptyBox: {
     backgroundColor: Colors.white,
@@ -633,7 +678,7 @@ const styles = StyleSheet.create({
   },
   catRow: {
     backgroundColor: Colors.white,
-    borderRadius: Spacing[3] - 2, // 10
+    borderRadius: Radius.sm,
     padding: Spacing[3],
     marginBottom: Spacing[2],
     gap: Spacing[2],
@@ -672,8 +717,8 @@ const styles = StyleSheet.create({
   },
   ytdHeader: {
     flexDirection: 'row',
-    paddingHorizontal: 14,
-    paddingVertical: Spacing[3] - 2, // 10
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
     backgroundColor: Colors.background,
@@ -684,7 +729,7 @@ const styles = StyleSheet.create({
   },
   ytdRow: {
     flexDirection: 'row',
-    paddingHorizontal: 14,
+    paddingHorizontal: Spacing[4],
     paddingVertical: Layout.listItemPaddingV,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,

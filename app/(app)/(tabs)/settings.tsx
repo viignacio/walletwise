@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import { View, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Modal, KeyboardAvoidingView, Platform } from 'react-native'
+import { View, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Modal, KeyboardAvoidingView, Platform, Linking, Share, ActivityIndicator } from 'react-native'
 import { Text } from '../../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { Colors, TextStyles, Spacing, Radius, Layout, Shadows } from '../../../constants'
+import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontFamily } from '../../../constants'
 import { supabase } from '../../../lib/supabase'
 import { formatAmount } from '../../../lib/wallet'
+import { getAllReminderSettings, setReminderSetting, ReminderSetting } from '../../../lib/notificationSettings'
+import { scheduleReminders } from '../../../lib/reminderScheduler'
+import * as Notifications from 'expo-notifications'
 
 type RowProps = {
   icon: React.ComponentProps<typeof Ionicons>['name']
@@ -54,6 +57,35 @@ export default function SettingsScreen() {
   const [thresholdEnabled, setThresholdEnabled] = useState(true)
   const [editingThreshold, setEditingThreshold] = useState(false)
   const [thresholdInput, setThresholdInput] = useState('')
+
+  // Credit reminder settings
+  const [cardDue, setCardDue] = useState<ReminderSetting>({ lead_days: 3, enabled: true })
+  const [borrowerPayment, setBorrowerPayment] = useState<ReminderSetting>({ lead_days: 3, enabled: true })
+  const [editingReminder, setEditingReminder] = useState<'card_due' | 'borrower_payment' | null>(null)
+  const [reminderLeadInput, setReminderLeadInput] = useState('')
+
+  // Profile modal
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [nameInput, setNameInput] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
+
+  // Household modal
+  const [householdModalOpen, setHouseholdModalOpen] = useState(false)
+  const [householdName, setHouseholdName] = useState<string | null>(null)
+  const [householdMembers, setHouseholdMembers] = useState<Array<{ id: string; name: string }>>([])
+  const [inviteCode, setInviteCode] = useState<string | null>(null)
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [householdLoading, setHouseholdLoading] = useState(false)
+
+  // Notification preferences modal
+  const [notifModalOpen, setNotifModalOpen] = useState(false)
+  const [notifPermission, setNotifPermission] = useState<string | null>(null)
+
+  // Join household modal
+  const [joinModalOpen, setJoinModalOpen] = useState(false)
+  const [joinCode, setJoinCode] = useState('')
+  const [joinLoading, setJoinLoading] = useState(false)
+
   const insets = useSafeAreaInsets()
 
   useEffect(() => {
@@ -70,15 +102,21 @@ export default function SettingsScreen() {
       if (!profile) return
       setHouseholdId(profile.household_id)
 
-      const { data: settings } = await supabase
-        .from('household_settings')
-        .select('low_balance_threshold, low_balance_notification_enabled')
-        .eq('household_id', profile.household_id)
-        .single()
-      if (settings) {
-        setThreshold(settings.low_balance_threshold)
-        setThresholdEnabled(settings.low_balance_notification_enabled)
+      const [walletSettings, reminderSettings] = await Promise.all([
+        supabase
+          .from('household_settings')
+          .select('low_balance_threshold, low_balance_notification_enabled')
+          .eq('household_id', profile.household_id)
+          .single(),
+        getAllReminderSettings(),
+      ])
+
+      if (walletSettings.data) {
+        setThreshold(walletSettings.data.low_balance_threshold)
+        setThresholdEnabled(walletSettings.data.low_balance_notification_enabled)
       }
+      setCardDue(reminderSettings.card_due)
+      setBorrowerPayment(reminderSettings.borrower_payment)
     })
   }, [])
 
@@ -116,6 +154,167 @@ export default function SettingsScreen() {
     if (!error) setThresholdEnabled(newValue)
   }
 
+  const openReminderEdit = (type: 'card_due' | 'borrower_payment') => {
+    const current = type === 'card_due' ? cardDue : borrowerPayment
+    setReminderLeadInput(String(current.lead_days))
+    setEditingReminder(type)
+  }
+
+  const saveReminder = async () => {
+    if (!editingReminder) return
+    const days = parseInt(reminderLeadInput, 10)
+    if (isNaN(days) || days < 1 || days > 30) {
+      Alert.alert('Invalid value', 'Please enter a number between 1 and 30.')
+      return
+    }
+    const current = editingReminder === 'card_due' ? cardDue : borrowerPayment
+    await setReminderSetting(editingReminder, days, current.enabled)
+    if (editingReminder === 'card_due') setCardDue({ ...current, lead_days: days })
+    else setBorrowerPayment({ ...current, lead_days: days })
+    setEditingReminder(null)
+    scheduleReminders().catch(() => {})
+  }
+
+  const toggleReminder = async (type: 'card_due' | 'borrower_payment') => {
+    const current = type === 'card_due' ? cardDue : borrowerPayment
+    const updated = { ...current, enabled: !current.enabled }
+    await setReminderSetting(type, updated.lead_days, updated.enabled)
+    if (type === 'card_due') setCardDue(updated)
+    else setBorrowerPayment(updated)
+    scheduleReminders().catch(() => {})
+  }
+
+  // ── Profile ──────────────────────────────────────────────────
+  const openProfileModal = () => {
+    setNameInput(displayName ?? '')
+    setProfileModalOpen(true)
+  }
+
+  const saveProfile = async () => {
+    const name = nameInput.trim()
+    if (!name) {
+      Alert.alert('Required', 'Please enter a display name.')
+      return
+    }
+    setNameSaving(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      await Promise.all([
+        supabase.from('profiles').update({ name }).eq('id', user.id),
+        supabase.auth.updateUser({ data: { full_name: name } }),
+      ])
+      setDisplayName(name)
+      setProfileModalOpen(false)
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not save name.')
+    } finally {
+      setNameSaving(false)
+    }
+  }
+
+  // ── Household ─────────────────────────────────────────────────
+  const openHouseholdModal = async () => {
+    setHouseholdModalOpen(true)
+    setInviteCode(null)
+    if (!householdId) return
+    setHouseholdLoading(true)
+    try {
+      const [hResult, mResult] = await Promise.all([
+        supabase.from('households').select('name').eq('id', householdId).single(),
+        supabase.from('profiles').select('id, name').eq('household_id', householdId),
+      ])
+      if (hResult.data) setHouseholdName(hResult.data.name)
+      if (mResult.data) setHouseholdMembers(mResult.data)
+    } finally {
+      setHouseholdLoading(false)
+    }
+  }
+
+  const generateInvite = async () => {
+    if (!householdId) return
+    setInviteLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      // Generate a readable 6-char code (no ambiguous chars)
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+      const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
+      const { error } = await supabase.from('household_invites').insert({
+        household_id: householdId,
+        code,
+        created_by: user.id,
+        expires_at: expiresAt,
+      })
+      if (error) throw error
+      setInviteCode(code)
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not generate invite.')
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  const shareInviteCode = async () => {
+    if (!inviteCode) return
+    await Share.share({
+      message: `Join my WalletWise household! Use invite code: ${inviteCode}`,
+    })
+  }
+
+  // ── Join Household ────────────────────────────────────────────
+  const joinHousehold = async () => {
+    const code = joinCode.trim().toUpperCase()
+    if (code.length !== 6) {
+      Alert.alert('Invalid code', 'Please enter the 6-character invite code.')
+      return
+    }
+    setJoinLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const now = new Date().toISOString()
+      const { data: invite, error: ie } = await supabase
+        .from('household_invites')
+        .select('household_id, expires_at')
+        .eq('code', code)
+        .single()
+
+      if (ie || !invite) {
+        Alert.alert('Invalid code', 'This invite code was not found. Check that it was entered correctly.')
+        return
+      }
+      if (invite.expires_at && invite.expires_at < now) {
+        Alert.alert('Code expired', 'This invite code has expired. Ask the household owner to generate a new one.')
+        return
+      }
+
+      const { error: pe } = await supabase
+        .from('profiles')
+        .update({ household_id: invite.household_id })
+        .eq('id', user.id)
+      if (pe) throw pe
+
+      setHouseholdId(invite.household_id)
+      setJoinModalOpen(false)
+      setJoinCode('')
+      Alert.alert('Joined!', 'You have joined the household. Pull to refresh on any screen to see shared data.')
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not join household.')
+    } finally {
+      setJoinLoading(false)
+    }
+  }
+
+  // ── Notification preferences ──────────────────────────────────
+  const openNotifModal = async () => {
+    const { status } = await Notifications.getPermissionsAsync()
+    setNotifPermission(status)
+    setNotifModalOpen(true)
+  }
+
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -126,9 +325,6 @@ export default function SettingsScreen() {
       },
     ])
   }
-
-  const comingSoon = () =>
-    Alert.alert('Coming soon', 'This setting will be available in a future phase.')
 
   return (
     <ScrollView
@@ -155,25 +351,25 @@ export default function SettingsScreen() {
         <SettingsRow
           icon="person-outline"
           label="Profile"
-          badge="Phase 6"
-          onPress={comingSoon}
-          disabled
+          onPress={openProfileModal}
         />
         <View style={styles.separator} />
         <SettingsRow
           icon="people-outline"
           label="Household"
-          badge="Phase 6"
-          onPress={comingSoon}
-          disabled
+          onPress={openHouseholdModal}
+        />
+        <View style={styles.separator} />
+        <SettingsRow
+          icon="enter-outline"
+          label="Join a Household"
+          onPress={() => { setJoinCode(''); setJoinModalOpen(true) }}
         />
         <View style={styles.separator} />
         <SettingsRow
           icon="notifications-outline"
           label="Notification Preferences"
-          badge="Phase 5"
-          onPress={comingSoon}
-          disabled
+          onPress={openNotifModal}
         />
       </View>
 
@@ -239,25 +435,105 @@ export default function SettingsScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Credit */}
+      {/* Credit Tracker reminders */}
       <SectionHeader title="Credit Tracker" />
       <View style={styles.section}>
-        <SettingsRow
-          icon="calendar-outline"
-          label="Card Due Date Reminders"
-          badge="Phase 5"
-          onPress={comingSoon}
-          disabled
-        />
+        {/* Card due date reminders */}
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => openReminderEdit('card_due')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.rowIcon}>
+            <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>Card Due Date Reminders</Text>
+            <Text style={styles.rowSublabel}>
+              {cardDue.enabled ? `${cardDue.lead_days} day${cardDue.lead_days !== 1 ? 's' : ''} before` : 'Off'}
+            </Text>
+          </View>
+          <View style={[styles.toggle, cardDue.enabled && styles.toggleActive]}
+            // Toggle tapped separately — suppress row press on knob area
+          >
+            <TouchableOpacity
+              onPress={() => toggleReminder('card_due')}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.toggleKnob, cardDue.enabled && styles.toggleKnobActive]} />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+
         <View style={styles.separator} />
-        <SettingsRow
-          icon="time-outline"
-          label="Borrower Payment Reminders"
-          badge="Phase 5"
-          onPress={comingSoon}
-          disabled
-        />
+
+        {/* Borrower payment reminders */}
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => openReminderEdit('borrower_payment')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.rowIcon}>
+            <Ionicons name="time-outline" size={18} color={Colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.rowLabel}>Installment Payment Reminders</Text>
+            <Text style={styles.rowSublabel}>
+              {borrowerPayment.enabled ? `${borrowerPayment.lead_days} day${borrowerPayment.lead_days !== 1 ? 's' : ''} before` : 'Off'}
+            </Text>
+          </View>
+          <View style={[styles.toggle, borrowerPayment.enabled && styles.toggleActive]}>
+            <TouchableOpacity
+              onPress={() => toggleReminder('borrower_payment')}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.toggleKnob, borrowerPayment.enabled && styles.toggleKnobActive]} />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </View>
+
+      {/* Reminder lead-days edit modal */}
+      <Modal visible={editingReminder !== null} transparent animationType="fade">
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>
+              {editingReminder === 'card_due' ? 'Card Due Date Reminder' : 'Installment Payment Reminder'}
+            </Text>
+            <Text style={styles.modalSubtitle}>
+              How many days before the due date should we remind you?
+            </Text>
+            <View style={styles.modalAmountRow}>
+              <TextInput
+                style={[styles.modalInput, { textAlign: 'center' }]}
+                value={reminderLeadInput}
+                onChangeText={setReminderLeadInput}
+                keyboardType="number-pad"
+                autoFocus
+                selectTextOnFocus
+                maxLength={2}
+              />
+              <Text style={[styles.modalPeso, { fontSize: 16 }]}> days</Text>
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setEditingReminder(null)}
+              >
+                <Text style={styles.modalBtnCancelLabel}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveReminder}>
+                <Text style={styles.modalBtnSaveLabel}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Account */}
       <SectionHeader title="Account" />
@@ -269,6 +545,217 @@ export default function SettingsScreen() {
           destructive
         />
       </View>
+
+      {/* ── Profile modal ── */}
+      <Modal visible={profileModalOpen} transparent animationType="fade">
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Edit Profile</Text>
+            <Text style={styles.modalSubtitle}>Update your display name.</Text>
+            <TextInput
+              style={styles.nameInput}
+              value={nameInput}
+              onChangeText={setNameInput}
+              placeholder="Display name"
+              placeholderTextColor={Colors.text.muted}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={saveProfile}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setProfileModalOpen(false)}
+              >
+                <Text style={styles.modalBtnCancelLabel}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnSave, nameSaving && styles.modalBtnDisabled]}
+                onPress={saveProfile}
+                disabled={nameSaving}
+              >
+                {nameSaving
+                  ? <ActivityIndicator color={Colors.white} size="small" />
+                  : <Text style={styles.modalBtnSaveLabel}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Household modal ── */}
+      <Modal visible={householdModalOpen} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalTitleRow}>
+              <Text style={styles.modalTitle}>Household</Text>
+              <TouchableOpacity onPress={() => setHouseholdModalOpen(false)} hitSlop={12}>
+                <Ionicons name="close" size={20} color={Colors.text.secondary} />
+              </TouchableOpacity>
+            </View>
+            {householdLoading ? (
+              <ActivityIndicator color={Colors.primary} style={{ marginVertical: Spacing[4] }} />
+            ) : (
+              <>
+                {householdName ? (
+                  <Text style={styles.householdName}>{householdName}</Text>
+                ) : null}
+
+                {/* Members */}
+                {householdMembers.length > 0 && (
+                  <>
+                    <Text style={styles.householdSectionLabel}>MEMBERS</Text>
+                    {householdMembers.map((m) => (
+                      <View key={m.id} style={styles.memberRow}>
+                        <View style={styles.memberAvatar}>
+                          <Text style={styles.memberInitial}>{m.name.charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <Text style={styles.memberName}>{m.name}</Text>
+                      </View>
+                    ))}
+                  </>
+                )}
+
+                {/* Invite */}
+                <Text style={styles.householdSectionLabel}>INVITE</Text>
+                {inviteCode ? (
+                  <>
+                    <View style={styles.inviteCodeBox}>
+                      <Text style={styles.inviteCode}>{inviteCode}</Text>
+                      <TouchableOpacity
+                        onPress={shareInviteCode}
+                        style={styles.shareBtn}
+                        hitSlop={8}
+                      >
+                        <Ionicons name="share-outline" size={18} color={Colors.primary} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.inviteExpiry}>Valid for 24 hours</Text>
+                    <TouchableOpacity onPress={() => setInviteCode(null)} hitSlop={8}>
+                      <Text style={styles.regenerateLink}>Generate new code</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.modalBtn, styles.modalBtnSave, inviteLoading && styles.modalBtnDisabled]}
+                      onPress={generateInvite}
+                      disabled={inviteLoading}
+                    >
+                      {inviteLoading
+                        ? <ActivityIndicator color={Colors.white} size="small" />
+                        : <Text style={styles.modalBtnSaveLabel}>Generate Invite Code</Text>}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Join household modal ── */}
+      <Modal visible={joinModalOpen} transparent animationType="fade">
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Join a Household</Text>
+            <Text style={styles.modalSubtitle}>
+              Enter the 6-character invite code shared by a household member.
+            </Text>
+            <TextInput
+              style={[styles.nameInput, styles.codeInput]}
+              value={joinCode}
+              onChangeText={(v) => setJoinCode(v.toUpperCase())}
+              placeholder="E.G. AB3X7K"
+              placeholderTextColor={Colors.text.muted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={6}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={joinHousehold}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setJoinModalOpen(false)}
+              >
+                <Text style={styles.modalBtnCancelLabel}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnSave, joinLoading && styles.modalBtnDisabled]}
+                onPress={joinHousehold}
+                disabled={joinLoading}
+              >
+                {joinLoading
+                  ? <ActivityIndicator color={Colors.white} size="small" />
+                  : <Text style={styles.modalBtnSaveLabel}>Join</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Notification preferences modal ── */}
+      <Modal visible={notifModalOpen} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalTitleRow}>
+              <Text style={styles.modalTitle}>Notifications</Text>
+              <TouchableOpacity onPress={() => setNotifModalOpen(false)} hitSlop={12}>
+                <Ionicons name="close" size={20} color={Colors.text.secondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[
+              styles.permissionBadge,
+              { backgroundColor: notifPermission === 'granted' ? Colors.incomeLight : Colors.warningLight },
+            ]}>
+              <Ionicons
+                name={notifPermission === 'granted' ? 'checkmark-circle' : 'alert-circle'}
+                size={16}
+                color={notifPermission === 'granted' ? Colors.income : Colors.warning}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={[
+                styles.permissionText,
+                { color: notifPermission === 'granted' ? Colors.income : Colors.warning },
+              ]}>
+                {notifPermission === 'granted' ? 'Notifications enabled' : 'Notifications are off'}
+              </Text>
+            </View>
+
+            <Text style={styles.modalSubtitle}>
+              {notifPermission === 'granted'
+                ? 'WalletWise can send reminders for card due dates and installment payments. Configure lead times in the Credit Tracker section below.'
+                : 'Enable notifications in your device settings to receive card due date and installment payment reminders.'}
+            </Text>
+
+            <View style={[styles.modalActions, { flexDirection: 'column' }]}>
+              {notifPermission !== 'granted' && (
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.modalBtnSave, { flex: 0 }]}
+                  onPress={() => { setNotifModalOpen(false); Linking.openSettings() }}
+                >
+                  <Text style={styles.modalBtnSaveLabel}>Open Device Settings</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel, { flex: 0 }]}
+                onPress={() => setNotifModalOpen(false)}
+              >
+                <Text style={styles.modalBtnCancelLabel}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   )
 }
@@ -364,6 +851,11 @@ const styles = StyleSheet.create({
   },
   rowLabelDestructive: {
     color: Colors.expense,
+  },
+  rowSublabel: {
+    ...TextStyles.label,
+    color: Colors.text.muted,
+    marginTop: 1,
   },
   rowRight: {
     flexDirection: 'row',
@@ -466,7 +958,110 @@ const styles = StyleSheet.create({
   },
   modalBtnSaveLabel: {
     ...TextStyles.labelLg,
-    fontWeight: '700' as const,
+    fontFamily: FontFamily.semiBold,
     color: Colors.white,
+  },
+  modalBtnDisabled: {
+    opacity: 0.6,
+  },
+  // Profile modal
+  nameInput: {
+    ...TextStyles.body,
+    color: Colors.text.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.md,
+    height: Layout.inputHeight,
+    paddingHorizontal: Spacing[4],
+    backgroundColor: Colors.surface,
+  },
+  codeInput: {
+    textAlign: 'center',
+    fontFamily: FontFamily.monoSemiBold,
+    fontSize: 22,
+    letterSpacing: 6,
+  },
+  // Household modal
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  householdName: {
+    ...TextStyles.h4,
+    color: Colors.text.primary,
+    marginBottom: Spacing[3],
+  },
+  householdSectionLabel: {
+    ...TextStyles.labelSm,
+    color: Colors.text.muted,
+    letterSpacing: 0.5,
+    marginTop: Spacing[3],
+    marginBottom: Spacing[2],
+  },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+    paddingVertical: Spacing[2],
+  },
+  memberAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memberInitial: {
+    ...TextStyles.label,
+    color: Colors.primary,
+    fontFamily: FontFamily.semiBold,
+  },
+  memberName: {
+    ...TextStyles.body,
+    color: Colors.text.primary,
+  },
+  inviteCodeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.primaryMuted,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[3],
+  },
+  inviteCode: {
+    fontFamily: FontFamily.monoSemiBold,
+    fontSize: 22,
+    color: Colors.primary,
+    letterSpacing: 4,
+  },
+  shareBtn: {
+    padding: Spacing[2],
+  },
+  inviteExpiry: {
+    ...TextStyles.caption,
+    color: Colors.text.muted,
+    textAlign: 'center',
+    marginTop: Spacing[1],
+  },
+  regenerateLink: {
+    ...TextStyles.label,
+    color: Colors.primary,
+    textAlign: 'center',
+    marginTop: Spacing[1],
+  },
+  // Notification preferences modal
+  permissionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[2],
+  },
+  permissionText: {
+    ...TextStyles.label,
+    fontFamily: FontFamily.semiBold,
   },
 })

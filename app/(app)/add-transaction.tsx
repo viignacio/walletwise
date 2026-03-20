@@ -14,7 +14,7 @@ import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout } from '../../constants'
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../../constants/categories'
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, suggestCategory } from '../../constants/categories'
 import { addTransaction, formatAmount, isBalanceBelowThreshold } from '../../lib/wallet'
 import { getProfile } from '../../lib/profile'
 import { sendHouseholdPush, sendAllHouseholdPush } from '../../lib/notifications'
@@ -37,6 +37,8 @@ export default function AddTransactionScreen() {
   const [date, setDate] = useState(today())
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  // Track whether the user manually picked a category so we don't override their choice
+  const [categoryManuallySet, setCategoryManuallySet] = useState(false)
 
   const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
 
@@ -44,7 +46,25 @@ export default function AddTransactionScreen() {
   const handleTypeChange = (newType: TransactionType) => {
     setType(newType)
     const validCats = newType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
-    if (!validCats.includes(category as never)) setCategory('')
+    if (!validCats.includes(category as never)) {
+      setCategory('')
+      setCategoryManuallySet(false)
+    }
+  }
+
+  const handleCategoryPress = (cat: string) => {
+    setCategory(cat)
+    setCategoryManuallySet(true)
+  }
+
+  const handleDescriptionChange = (text: string) => {
+    setDescription(text)
+    // Only auto-suggest when user hasn't manually picked a category
+    if (!categoryManuallySet) {
+      const suggestion = suggestCategory(text, type)
+      if (suggestion) setCategory(suggestion)
+      else setCategory('')
+    }
   }
 
   const handleSave = async () => {
@@ -178,7 +198,7 @@ export default function AddTransactionScreen() {
         <TextInput
           style={styles.input}
           value={description}
-          onChangeText={setDescription}
+          onChangeText={handleDescriptionChange}
           placeholder="e.g. Grocery run"
           placeholderTextColor={Colors.text.muted}
           returnKeyType="done"
@@ -191,7 +211,7 @@ export default function AddTransactionScreen() {
             <Pressable
               key={cat}
               style={({ pressed }) => [styles.catChip, category === cat && styles.catChipActive, pressed && styles.pressed]}
-              onPress={() => setCategory(cat)}
+              onPress={() => handleCategoryPress(cat)}
             >
               <Text style={[styles.catChipLabel, category === cat && styles.catChipLabelActive]}>
                 {cat}

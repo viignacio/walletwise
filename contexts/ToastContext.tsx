@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useRef, useCallback, ReactNode } from 'react'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { Colors } from '../constants/colors'
+import { Colors, Radius, Spacing, Shadows, TextStyles } from '../constants'
 
 interface ToastContextValue {
   showToast: (message: string, type?: 'default' | 'income' | 'expense') => void
@@ -84,26 +84,20 @@ export function ToastProvider({ children }: ToastProviderProps) {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: Spacing[4],
+    right: Spacing[4],
     zIndex: 9999,
   },
   toast: {
     backgroundColor: Colors.text.primary,
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    borderRadius: Radius.md,
+    paddingVertical: Spacing[3],
+    paddingHorizontal: Spacing[4],
     borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 6,
+    ...Shadows.md,
   },
   text: {
+    ...TextStyles.label,
     color: Colors.white,
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 18,
   },
 })

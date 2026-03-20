@@ -6,6 +6,8 @@ import { supabase } from '../../lib/supabase'
 import { registerPushToken } from '../../lib/notifications'
 import { formatAmount } from '../../lib/wallet'
 import { getProfile } from '../../lib/profile'
+import { scheduleReminders } from '../../lib/reminderScheduler'
+import { markOverduePayments } from '../../lib/creditRecords'
 import { RealtimeChannel } from '@supabase/supabase-js'
 
 function AppShell() {
@@ -28,6 +30,12 @@ function AppShell() {
 
       // Register push token (non-blocking)
       registerPushToken(profile.id)
+
+      // Schedule local reminders for card dues and borrower payments (non-blocking)
+      scheduleReminders().catch(() => {})
+
+      // Transition any past-due payments to overdue (non-blocking)
+      markOverduePayments().catch(() => {})
 
       // Subscribe to household transactions via Realtime
       channelRef.current = supabase
@@ -104,6 +112,56 @@ function AppShell() {
         options={{
           presentation: 'modal',
           title: 'Edit Transaction',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTitleStyle: { color: Colors.text.primary, fontWeight: '700', fontSize: 17 },
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="add-card"
+        options={{
+          presentation: 'modal',
+          title: 'Add Card',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTitleStyle: { color: Colors.text.primary, fontWeight: '700', fontSize: 17 },
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="add-installment"
+        options={{
+          presentation: 'modal',
+          title: 'Edit User',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTitleStyle: { color: Colors.text.primary, fontWeight: '700', fontSize: 17 },
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="add-credit-record"
+        options={{
+          presentation: 'modal',
+          title: 'Add Installment Record',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTitleStyle: { color: Colors.text.primary, fontWeight: '700', fontSize: 17 },
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="record-detail"
+        options={{
+          title: 'Record',
+          headerBackTitle: 'Back',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTitleStyle: { color: Colors.text.primary, fontWeight: '700', fontSize: 17 },
+          headerShadowVisible: false,
+        }}
+      />
+      <Stack.Screen
+        name="log-payment"
+        options={{
+          presentation: 'modal',
+          title: 'Log Payment',
           headerStyle: { backgroundColor: Colors.white },
           headerTitleStyle: { color: Colors.text.primary, fontWeight: '700', fontSize: 17 },
           headerShadowVisible: false,

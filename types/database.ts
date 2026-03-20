@@ -4,7 +4,7 @@ export type LendingStatus = 'active' | 'settled' | 'overdue'
 export type PaymentStatus = 'upcoming' | 'paid' | 'underpaid' | 'overdue'
 export type NotificationType =
   | 'card_due'
-  | 'borrower_payment'
+  | 'installment_payment'
   | 'low_balance'
   | 'transaction_activity'
 
@@ -54,7 +54,7 @@ export interface Card {
   created_at: string
 }
 
-export interface Borrower {
+export interface Installment {
   id: string
   user_id: string
   name: string
@@ -66,7 +66,7 @@ export interface LendingRecord {
   id: string
   user_id: string
   card_id: string
-  borrower_id: string
+  installment_id: string
   description: string
   total_amount: number
   transaction_date: string

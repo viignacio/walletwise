@@ -3,7 +3,7 @@ import { FontFamily } from '../../constants/typography'
 import { Colors } from '../../constants/colors'
 
 export function Text({ style, ...props }: TextProps) {
-  return <RNText style={[styles.base, style]} {...props} />
+  return <RNText style={StyleSheet.flatten([styles.base, style])} {...props} />
 }
 
 const styles = StyleSheet.create({

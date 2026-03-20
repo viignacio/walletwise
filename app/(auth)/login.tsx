@@ -58,7 +58,7 @@ export default function LoginScreen() {
             <Ionicons name="wallet" size={32} color={Colors.white} />
           </View>
           <Text style={styles.title}>WalletWise</Text>
-          <Text style={styles.subtitle}>Household & Lending Finance</Text>
+          <Text style={styles.subtitle}>Household & Credit Finance</Text>
         </View>
 
         {/* Form */}
