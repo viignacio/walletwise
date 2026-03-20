@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  Alert,
   InputAccessoryView,
   KeyboardAvoidingView,
   Platform,
@@ -10,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -48,6 +47,8 @@ export default function AddCardScreen() {
   const [dueDateDay, setDueDateDay] = useState('')
   const [color, setColor] = useState<string>(CARD_COLORS[0])
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const { showAlert, alertModal } = useAlertModal()
 
   useEffect(() => {
     if (!id) return
@@ -67,7 +68,7 @@ export default function AddCardScreen() {
   const validateDay = (val: string, label: string): number | null => {
     const n = parseInt(val, 10)
     if (isNaN(n) || n < 1 || n > 31) {
-      Alert.alert('Invalid day', `${label} must be a number between 1 and 31.`)
+      showAlert('Invalid day', `${label} must be a number between 1 and 31.`)
       return null
     }
     return n
@@ -75,7 +76,7 @@ export default function AddCardScreen() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Name required', 'Please enter a card name.')
+      showAlert('Name required', 'Please enter a card name.')
       return
     }
     const cutoff = validateDay(cutoffDay, 'Billing cutoff day')
@@ -101,28 +102,22 @@ export default function AddCardScreen() {
       }
       router.back()
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = () => {
-    Alert.alert('Delete Card', 'Are you sure? This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteCard(id!)
-            router.back()
-          } catch (e: unknown) {
-            Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
-          }
-        },
-      },
-    ])
+  const handleDelete = () => setConfirmDelete(true)
+
+  const confirmDeleteCard = async () => {
+    setConfirmDelete(false)
+    try {
+      await deleteCard(id!)
+      router.back()
+    } catch (e: unknown) {
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
+    }
   }
 
   return (
@@ -247,6 +242,16 @@ export default function AddCardScreen() {
         )}
       </ScrollView>
       {Platform.OS === 'ios' && <InputAccessoryView nativeID="no-toolbar" />}
+      <ConfirmModal
+        visible={confirmDelete}
+        title="Delete Card"
+        message="Are you sure? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDeleteCard}
+        onCancel={() => setConfirmDelete(false)}
+      />
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

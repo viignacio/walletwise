@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
@@ -10,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -44,6 +43,8 @@ export default function EditTransactionScreen() {
   const [loadingTx, setLoadingTx] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const { showAlert, alertModal } = useAlertModal()
 
   // Load transaction
   useEffect(() => {
@@ -55,7 +56,7 @@ export default function EditTransactionScreen() {
       .single()
       .then(({ data, error }) => {
         if (error || !data) {
-          Alert.alert('Error', 'Transaction not found')
+          showAlert('Error', 'Transaction not found')
           router.back()
           return
         }
@@ -81,15 +82,15 @@ export default function EditTransactionScreen() {
 
   const handleSave = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      Alert.alert('Invalid amount', 'Please enter a valid amount greater than 0.')
+      showAlert('Invalid amount', 'Please enter a valid amount greater than 0.')
       return
     }
     if (!category) {
-      Alert.alert('Category required', 'Please select a category.')
+      showAlert('Category required', 'Please select a category.')
       return
     }
     if (!description.trim()) {
-      Alert.alert('Description required', 'Please enter a description.')
+      showAlert('Description required', 'Please enter a description.')
       return
     }
     if (!original) return
@@ -141,7 +142,7 @@ export default function EditTransactionScreen() {
       router.back()
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Something went wrong'
-      Alert.alert('Error', msg)
+      showAlert('Error', msg)
     } finally {
       setSaving(false)
     }
@@ -149,45 +150,38 @@ export default function EditTransactionScreen() {
 
   const handleDelete = () => {
     if (!original) return
-    Alert.alert(
-      'Delete Transaction',
-      `Remove "${original.description}" (${formatAmount(Number(original.amount))})? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleting(true)
-            try {
-              const profile = await getProfile()
+    setConfirmDelete(true)
+  }
 
-              await deleteTransaction(id)
+  const confirmDeleteTransaction = async () => {
+    if (!original) return
+    setConfirmDelete(false)
+    setDeleting(true)
+    try {
+      const profile = await getProfile()
 
-              const { balance } = await isBalanceBelowThreshold(profile.household_id)
-              const balanceStr = formatAmount(balance)
-              const amountStr = formatAmount(Number(original.amount))
-              const desc = original.description
+      await deleteTransaction(id)
 
-              showToast(`You removed ${desc} (${amountStr}). Balance: ${balanceStr}`)
+      const { balance } = await isBalanceBelowThreshold(profile.household_id)
+      const balanceStr = formatAmount(balance)
+      const amountStr = formatAmount(Number(original.amount))
+      const desc = original.description
 
-              sendHouseholdPush(
-                profile.household_id,
-                profile.id,
-                `${profile.name} removed ${desc} (${amountStr}). Balance: ${balanceStr}`
-              ).catch(() => {})
+      showToast(`You removed ${desc} (${amountStr}). Balance: ${balanceStr}`)
 
-              router.back()
-            } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : 'Something went wrong'
-              Alert.alert('Error', msg)
-            } finally {
-              setDeleting(false)
-            }
-          },
-        },
-      ]
-    )
+      sendHouseholdPush(
+        profile.household_id,
+        profile.id,
+        `${profile.name} removed ${desc} (${amountStr}). Balance: ${balanceStr}`
+      ).catch(() => {})
+
+      router.back()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Something went wrong'
+      showAlert('Error', msg)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   if (loadingTx) {
@@ -327,6 +321,16 @@ export default function EditTransactionScreen() {
           <Text style={styles.deleteBtnLabel}>{deleting ? 'Deleting…' : 'Delete Transaction'}</Text>
         </Pressable>
       </ScrollView>
+      <ConfirmModal
+        visible={confirmDelete}
+        title="Delete Transaction"
+        message={original ? `Remove "${original.description}" (${formatAmount(Number(original.amount))})? This cannot be undone.` : 'This cannot be undone.'}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDeleteTransaction}
+        onCancel={() => setConfirmDelete(false)}
+      />
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

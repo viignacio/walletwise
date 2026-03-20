@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   InputAccessoryView,
   KeyboardAvoidingView,
   Platform,
@@ -11,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { Text, useAlertModal } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useFocusEffect } from '@react-navigation/native'
@@ -100,6 +99,7 @@ export default function LogPaymentScreen() {
   const [preview, setPreview] = useState<CascadePreview | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const { showAlert, alertModal } = useAlertModal()
 
   useFocusEffect(
     useCallback(() => {
@@ -114,11 +114,11 @@ export default function LogPaymentScreen() {
   const handlePreview = async () => {
     const amount = parseFloat(amountInput)
     if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Invalid amount', 'Please enter a valid payment amount.')
+      showAlert('Invalid amount', 'Please enter a valid payment amount.')
       return
     }
     if (!paidDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      Alert.alert('Invalid date', 'Please enter the date as YYYY-MM-DD.')
+      showAlert('Invalid date', 'Please enter the date as YYYY-MM-DD.')
       return
     }
     setPreviewing(true)
@@ -126,7 +126,7 @@ export default function LogPaymentScreen() {
       const result = await previewCascade(id, amount)
       setPreview(result)
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     } finally {
       setPreviewing(false)
     }
@@ -140,7 +140,7 @@ export default function LogPaymentScreen() {
       await applyPayment(id, amount, paidDate)
       router.back()
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     } finally {
       setConfirming(false)
     }
@@ -286,6 +286,7 @@ export default function LogPaymentScreen() {
         )}
       </ScrollView>
       {Platform.OS === 'ios' && <InputAccessoryView nativeID="no-toolbar" />}
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

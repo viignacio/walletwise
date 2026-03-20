@@ -1,13 +1,12 @@
 import { useCallback, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useFocusEffect } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -172,6 +171,8 @@ export default function RecordDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const [data, setData] = useState<LendingRecordWithPayments | null>(null)
   const [loading, setLoading] = useState(true)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const { showAlert, alertModal } = useAlertModal()
 
   useFocusEffect(
     useCallback(() => {
@@ -185,26 +186,16 @@ export default function RecordDetailScreen() {
     }, [id]),
   )
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Record',
-      'This will also delete all payment rows. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteRecord(id)
-              router.back()
-            } catch (e: unknown) {
-              Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
-            }
-          },
-        },
-      ],
-    )
+  const handleDelete = () => setConfirmDelete(true)
+
+  const confirmDeleteRecord = async () => {
+    setConfirmDelete(false)
+    try {
+      await deleteRecord(id)
+      router.back()
+    } catch (e: unknown) {
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
+    }
   }
 
   const canLogPayment =
@@ -274,6 +265,16 @@ export default function RecordDetailScreen() {
           )}
         </>
       )}
+      <ConfirmModal
+        visible={confirmDelete}
+        title="Delete Record"
+        message="This will also delete all payment rows. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDeleteRecord}
+        onCancel={() => setConfirmDelete(false)}
+      />
+      {alertModal}
     </ScrollView>
   )
 }

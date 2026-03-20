@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import {
   View, TextInput, TouchableOpacity,
-  StyleSheet, Alert, KeyboardAvoidingView,
+  StyleSheet, KeyboardAvoidingView,
   Platform, ScrollView
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { Text, useAlertModal } from '../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { supabase } from '../../lib/supabase'
@@ -19,14 +19,15 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const { showAlert, alertModal } = useAlertModal()
 
   const handleRegister = async () => {
     if (!name || !email || !password) {
-      Alert.alert('Missing fields', 'Please fill in all fields.')
+      showAlert('Missing fields', 'Please fill in all fields.')
       return
     }
     if (password.length < 6) {
-      Alert.alert('Weak password', 'Password must be at least 6 characters.')
+      showAlert('Weak password', 'Password must be at least 6 characters.')
       return
     }
     setLoading(true)
@@ -38,7 +39,7 @@ export default function RegisterScreen() {
       },
     })
     if (error) {
-      Alert.alert('Registration failed', error.message)
+      showAlert('Registration failed', error.message)
       setLoading(false)
     } else if (data.session) {
       // Email confirmation is disabled — user is signed in immediately.
@@ -46,10 +47,10 @@ export default function RegisterScreen() {
       setLoading(false)
     } else {
       // Email confirmation is enabled — user must confirm before signing in.
-      Alert.alert(
+      showAlert(
         'Almost there!',
         'Check your email to confirm your account, then sign in.',
-        [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }]
+        () => router.replace('/(auth)/login'),
       )
       setLoading(false)
     }
@@ -116,6 +117,8 @@ export default function RegisterScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
                 returnKeyType="done"
                 onSubmitEditing={handleRegister}
               />
@@ -152,6 +155,7 @@ export default function RegisterScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

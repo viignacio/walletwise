@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Pressable,
@@ -136,12 +136,19 @@ async function fetchRecentTransactions(householdId: string, limit: number): Prom
 
 function BalanceHero({ balance }: { balance: number }) {
   const isPositive = balance >= 0
+  const accentColor = isPositive ? Colors.income : Colors.expense
   return (
     <View style={[styles.balanceCard, Shadows.card]}>
-      <Text style={styles.balanceLabel}>HOUSEHOLD BALANCE</Text>
-      <Text style={[styles.balanceAmount, { color: isPositive ? Colors.income : Colors.expense }]}>
-        {isPositive ? '+' : '-'}{formatAmount(Math.abs(balance))}
-      </Text>
+      <View style={[styles.balanceAccentBar, { backgroundColor: accentColor }]} />
+      <View style={styles.balanceCardInner}>
+        <View style={styles.balanceLabelRow}>
+          <Ionicons name="home-outline" size={13} color={Colors.text.secondary} />
+          <Text style={styles.balanceLabel}>HOUSEHOLD BALANCE</Text>
+        </View>
+        <Text style={[styles.balanceAmount, { color: accentColor }]}>
+          {isPositive ? '+' : '-'}{formatAmount(Math.abs(balance))}
+        </Text>
+      </View>
     </View>
   )
 }
@@ -150,27 +157,31 @@ function DueCard({ due }: { due: UpcomingDue }) {
   const urgent = due.daysAway <= 3
   return (
     <View style={[styles.dueCard, Shadows.card]}>
-      <View style={styles.dueCardHeader}>
-        <View style={[styles.cardDot, { backgroundColor: due.cardColor }]} />
-        <Text style={styles.dueCardName} numberOfLines={1}>{due.cardName}</Text>
-        <View style={[styles.dueBadge, { backgroundColor: urgent ? Colors.expenseLight : Colors.primaryLight }]}>
-          <Text style={[styles.dueBadgeText, { color: urgent ? Colors.expense : Colors.primary }]}>
-            {due.daysAway === 0 ? 'Today' : due.daysAway === 1 ? 'Tomorrow' : `${due.daysAway}d`}
-          </Text>
+      <View style={[styles.dueCardAccent, { backgroundColor: due.cardColor }]} />
+      <View style={styles.dueCardInner}>
+        <View style={styles.dueCardHeader}>
+          <Text style={styles.dueCardName} numberOfLines={1}>{due.cardName}</Text>
+          <View style={[styles.dueBadge, { backgroundColor: urgent ? Colors.expenseLight : Colors.primaryLight }]}>
+            <Text style={[styles.dueBadgeText, { color: urgent ? Colors.expense : Colors.primary }]}>
+              {due.daysAway === 0 ? 'Today' : due.daysAway === 1 ? 'Tomorrow' : `${due.daysAway}d`}
+            </Text>
+          </View>
         </View>
+        <Text style={styles.dueDateText}>
+          <Ionicons name="calendar-outline" size={11} color={Colors.text.muted} />{' '}Due {due.dueDateDisplay}
+        </Text>
+        {due.collections.length > 0 ? (
+          <View style={styles.collectionsRow}>
+            <Ionicons name="cash-outline" size={13} color={Colors.text.secondary} style={{ marginRight: 4 }} />
+            <Text style={styles.collectionsText} numberOfLines={1}>
+              {due.collections.map((c) => `${c.name} ${formatAmount(c.amount)}`).join(' + ')}
+              {due.collections.length > 1 ? ` = ${formatAmount(due.totalExpected)}` : ''}
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.noCollectionsText}>No active collections</Text>
+        )}
       </View>
-      <Text style={styles.dueDateText}>Due {due.dueDateDisplay}</Text>
-      {due.collections.length > 0 ? (
-        <View style={styles.collectionsRow}>
-          <Ionicons name="cash-outline" size={13} color={Colors.text.secondary} style={{ marginRight: 4 }} />
-          <Text style={styles.collectionsText} numberOfLines={1}>
-            {due.collections.map((c) => `${c.name} ${formatAmount(c.amount)}`).join(' + ')}
-            {due.collections.length > 1 ? ` = ${formatAmount(due.totalExpected)}` : ''}
-          </Text>
-        </View>
-      ) : (
-        <Text style={styles.noCollectionsText}>No active collections</Text>
-      )}
     </View>
   )
 }
@@ -179,6 +190,7 @@ function ActivityRow({ tx }: { tx: Transaction }) {
   const isIncome = tx.type === 'income'
   const sign = isIncome ? '+' : '-'
   const color = isIncome ? Colors.income : Colors.expense
+  const iconBg = isIncome ? Colors.incomeLight : Colors.expenseLight
 
   // Date display: "Mar 20"
   const [, m, d] = tx.date.split('-').map(Number)
@@ -186,6 +198,13 @@ function ActivityRow({ tx }: { tx: Transaction }) {
 
   return (
     <View style={styles.activityRow}>
+      <View style={[styles.activityIcon, { backgroundColor: iconBg }]}>
+        <Ionicons
+          name={isIncome ? 'arrow-up-outline' : 'arrow-down-outline'}
+          size={14}
+          color={color}
+        />
+      </View>
       <View style={styles.activityLeft}>
         <Text style={styles.activityDesc} numberOfLines={1}>{tx.description}</Text>
         <Text style={styles.activityMeta}>{tx.category} · {dateLabel}</Text>
@@ -209,6 +228,7 @@ export default function DashboardScreen() {
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const initialized = useRef(false)
   const [balance, setBalance] = useState(0)
   const [upcomingDues, setUpcomingDues] = useState<UpcomingDue[]>([])
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([])
@@ -232,6 +252,7 @@ export default function DashboardScreen() {
     } catch (e) {
       console.warn('[Dashboard] load error:', e)
     } finally {
+      initialized.current = true
       setLoading(false)
       setRefreshing(false)
     }
@@ -239,7 +260,7 @@ export default function DashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true)
+      if (!initialized.current) setLoading(true)
       load()
     }, [load])
   )
@@ -271,6 +292,7 @@ export default function DashboardScreen() {
       <SectionHeader title="UPCOMING DUES" />
       {upcomingDues.length === 0 ? (
         <View style={[styles.emptyCard, Shadows.card]}>
+          <Ionicons name="checkmark-circle-outline" size={28} color={Colors.income} style={{ marginBottom: Spacing[2] }} />
           <Text style={styles.emptyText}>No card dues in the next 30 days.</Text>
         </View>
       ) : (
@@ -289,6 +311,7 @@ export default function DashboardScreen() {
       </View>
       {recentActivity.length === 0 ? (
         <View style={[styles.emptyCard, Shadows.card]}>
+          <Ionicons name="receipt-outline" size={28} color={Colors.text.muted} style={{ marginBottom: Spacing[2] }} />
           <Text style={styles.emptyText}>No transactions yet.</Text>
         </View>
       ) : (
@@ -328,21 +351,33 @@ const styles = StyleSheet.create({
   balanceCard: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg,
+    marginBottom: Spacing[2],
+    overflow: 'hidden',
+  },
+  balanceAccentBar: {
+    height: 4,
+    borderTopLeftRadius: Radius.lg,
+    borderTopRightRadius: Radius.lg,
+  },
+  balanceCardInner: {
     padding: Layout.cardPadding,
     paddingVertical: Spacing[6],
-    marginBottom: Spacing[2],
     alignItems: 'center',
+  },
+  balanceLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[1],
+    marginBottom: Spacing[2],
   },
   balanceLabel: {
     ...TextStyles.labelSm,
     color: Colors.text.secondary,
-    marginBottom: Spacing[2],
     letterSpacing: 0.5,
   },
   balanceAmount: {
-    fontSize: 36,
-    fontFamily: FontFamily.monoSemiBold,
-    lineHeight: 44,
+    ...TextStyles.displayMd,
+    letterSpacing: -1,
   },
 
   // Section header
@@ -369,19 +404,23 @@ const styles = StyleSheet.create({
   dueCard: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.md,
-    padding: Layout.cardPadding,
     marginBottom: Spacing[2],
+    overflow: 'hidden',
+    flexDirection: 'row',
+  },
+  dueCardAccent: {
+    width: 4,
+    borderTopLeftRadius: Radius.md,
+    borderBottomLeftRadius: Radius.md,
+  },
+  dueCardInner: {
+    flex: 1,
+    padding: Layout.cardPadding,
   },
   dueCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: Spacing[1],
-  },
-  cardDot: {
-    width: 10,
-    height: 10,
-    borderRadius: Radius.full,
-    marginRight: Spacing[2],
   },
   dueCardName: {
     ...TextStyles.bodyLg,
@@ -430,13 +469,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Layout.cardPadding,
     paddingVertical: Spacing[3],
+    gap: Spacing[3],
+  },
+  activityIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: Radius.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   activityLeft: {
     flex: 1,
-    marginRight: Spacing[3],
   },
   activityDesc: {
-    ...TextStyles.body,
+    ...TextStyles.bodySm,
+    fontFamily: FontFamily.semiBold,
     color: Colors.text.primary,
   },
   activityMeta: {
@@ -445,8 +492,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   activityAmount: {
-    fontFamily: FontFamily.monoSemiBold,
-    fontSize: 15,
+    ...TextStyles.amountXs,
   },
   divider: {
     height: 1,
@@ -458,7 +504,8 @@ const styles = StyleSheet.create({
   emptyCard: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.md,
-    padding: Layout.cardPadding,
+    paddingVertical: Spacing[6],
+    paddingHorizontal: Layout.cardPadding,
     alignItems: 'center',
     marginBottom: Spacing[2],
   },

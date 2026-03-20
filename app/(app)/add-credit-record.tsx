@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Alert,
   InputAccessoryView,
   KeyboardAvoidingView,
   Platform,
@@ -10,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { Text, useAlertModal } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -223,6 +222,7 @@ export default function AddCreditRecordScreen() {
 
   const [showCardPicker, setShowCardPicker] = useState(false)
   const [showInstallmentPicker, setShowInstallmentPicker] = useState(false)
+  const { showAlert, alertModal } = useAlertModal()
 
   const handleCreateInstallment = async (name: string, notes: string | null) => {
     try {
@@ -230,7 +230,7 @@ export default function AddCreditRecordScreen() {
       setInstallments((prev) => [...prev, created])
       setSelectedInstallment(created)
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Could not create user')
+      showAlert('Error', e instanceof Error ? e.message : 'Could not create user')
       throw e
     }
   }
@@ -276,24 +276,24 @@ export default function AddCreditRecordScreen() {
 
   const handleSave = async () => {
     if (!selectedCard) {
-      Alert.alert('Card required', 'Please select a card.')
+      showAlert('Card required', 'Please select a card.')
       return
     }
     if (!selectedInstallment) {
-      Alert.alert('Installment required', 'Please select an installment.')
+      showAlert('Installment required', 'Please select an installment.')
       return
     }
     if (!description.trim()) {
-      Alert.alert('Description required', 'Please enter a description.')
+      showAlert('Description required', 'Please enter a description.')
       return
     }
     const amount = parseFloat(totalAmount)
     if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Invalid amount', 'Please enter a valid amount.')
+      showAlert('Invalid amount', 'Please enter a valid amount.')
       return
     }
     if (!transactionDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      Alert.alert('Invalid date', 'Please enter the date as YYYY-MM-DD.')
+      showAlert('Invalid date', 'Please enter the date as YYYY-MM-DD.')
       return
     }
     let months: number | undefined
@@ -301,7 +301,7 @@ export default function AddCreditRecordScreen() {
     if (scheme === 'installment') {
       months = parseInt(installmentMonths, 10)
       if (isNaN(months) || months < 3 || months > 36) {
-        Alert.alert('Invalid months', 'Installment period must be between 3 and 36 months.')
+        showAlert('Invalid months', 'Installment period must be between 3 and 36 months.')
         return
       }
     }
@@ -322,7 +322,7 @@ export default function AddCreditRecordScreen() {
       })
       router.back()
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     } finally {
       setSaving(false)
     }
@@ -518,6 +518,7 @@ export default function AddCreditRecordScreen() {
         </Pressable>
       </ScrollView>
       {Platform.OS === 'ios' && <InputAccessoryView nativeID="no-toolbar" />}
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { Text, useAlertModal } from '../../components/ui'
 import { useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -39,6 +38,7 @@ export default function AddTransactionScreen() {
   const [saving, setSaving] = useState(false)
   // Track whether the user manually picked a category so we don't override their choice
   const [categoryManuallySet, setCategoryManuallySet] = useState(false)
+  const { showAlert, alertModal } = useAlertModal()
 
   const categories = type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
 
@@ -69,15 +69,15 @@ export default function AddTransactionScreen() {
 
   const handleSave = async () => {
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      Alert.alert('Invalid amount', 'Please enter a valid amount greater than 0.')
+      showAlert('Invalid amount', 'Please enter a valid amount greater than 0.')
       return
     }
     if (!category) {
-      Alert.alert('Category required', 'Please select a category.')
+      showAlert('Category required', 'Please select a category.')
       return
     }
     if (!description.trim()) {
-      Alert.alert('Description required', 'Please enter a description.')
+      showAlert('Description required', 'Please enter a description.')
       return
     }
 
@@ -131,7 +131,7 @@ export default function AddTransactionScreen() {
       router.back()
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Something went wrong'
-      Alert.alert('Error', msg)
+      showAlert('Error', msg)
     } finally {
       setSaving(false)
     }
@@ -258,6 +258,7 @@ export default function AddTransactionScreen() {
           <Text style={styles.saveBtnLabel}>{saving ? 'Saving…' : 'Save Transaction'}</Text>
         </Pressable>
       </ScrollView>
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

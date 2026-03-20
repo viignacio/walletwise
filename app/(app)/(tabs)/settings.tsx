@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { View, TouchableOpacity, StyleSheet, Alert, ScrollView, TextInput, Modal, KeyboardAvoidingView, Platform, Linking, Share, ActivityIndicator } from 'react-native'
-import { Text } from '../../../components/ui'
+import { View, Pressable, StyleSheet, ScrollView, TextInput, Modal, KeyboardAvoidingView, Platform, Linking, Share, ActivityIndicator } from 'react-native'
+import { ConfirmModal, Text, useAlertModal } from '../../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontFamily } from '../../../constants'
@@ -21,11 +21,10 @@ type RowProps = {
 
 function SettingsRow({ icon, label, badge, onPress, destructive, disabled }: RowProps) {
   return (
-    <TouchableOpacity
-      style={[styles.row, disabled && styles.rowDisabled]}
+    <Pressable
+      style={({ pressed }) => [styles.row, disabled && styles.rowDisabled, pressed && styles.pressed]}
       onPress={onPress}
       disabled={disabled || !onPress}
-      activeOpacity={0.7}
     >
       <View style={[styles.rowIcon, destructive && styles.rowIconDestructive]}>
         <Ionicons name={icon} size={18} color={destructive ? Colors.expense : Colors.primary} />
@@ -41,7 +40,7 @@ function SettingsRow({ icon, label, badge, onPress, destructive, disabled }: Row
           />
         )}
       </View>
-    </TouchableOpacity>
+    </Pressable>
   )
 }
 
@@ -63,6 +62,7 @@ export default function SettingsScreen() {
   const [borrowerPayment, setBorrowerPayment] = useState<ReminderSetting>({ lead_days: 3, enabled: true })
   const [editingReminder, setEditingReminder] = useState<'card_due' | 'borrower_payment' | null>(null)
   const [reminderLeadInput, setReminderLeadInput] = useState('')
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
 
   // Profile modal
   const [profileModalOpen, setProfileModalOpen] = useState(false)
@@ -87,6 +87,7 @@ export default function SettingsScreen() {
   const [joinLoading, setJoinLoading] = useState(false)
 
   const insets = useSafeAreaInsets()
+  const { showAlert, alertModal } = useAlertModal()
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
@@ -129,7 +130,7 @@ export default function SettingsScreen() {
     if (!householdId) return
     const value = parseFloat(thresholdInput)
     if (isNaN(value) || value < 0) {
-      Alert.alert('Invalid amount', 'Please enter a valid threshold amount.')
+      showAlert('Invalid amount', 'Please enter a valid threshold amount.')
       return
     }
     const { error } = await supabase
@@ -137,7 +138,7 @@ export default function SettingsScreen() {
       .update({ low_balance_threshold: value })
       .eq('household_id', householdId)
     if (error) {
-      Alert.alert('Error', error.message)
+      showAlert('Error', error.message)
       return
     }
     setThreshold(value)
@@ -164,7 +165,7 @@ export default function SettingsScreen() {
     if (!editingReminder) return
     const days = parseInt(reminderLeadInput, 10)
     if (isNaN(days) || days < 1 || days > 30) {
-      Alert.alert('Invalid value', 'Please enter a number between 1 and 30.')
+      showAlert('Invalid value', 'Please enter a number between 1 and 30.')
       return
     }
     const current = editingReminder === 'card_due' ? cardDue : borrowerPayment
@@ -193,7 +194,7 @@ export default function SettingsScreen() {
   const saveProfile = async () => {
     const name = nameInput.trim()
     if (!name) {
-      Alert.alert('Required', 'Please enter a display name.')
+      showAlert('Required', 'Please enter a display name.')
       return
     }
     setNameSaving(true)
@@ -207,7 +208,7 @@ export default function SettingsScreen() {
       setDisplayName(name)
       setProfileModalOpen(false)
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Could not save name.')
+      showAlert('Error', e instanceof Error ? e.message : 'Could not save name.')
     } finally {
       setNameSaving(false)
     }
@@ -250,7 +251,7 @@ export default function SettingsScreen() {
       if (error) throw error
       setInviteCode(code)
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Could not generate invite.')
+      showAlert('Error', e instanceof Error ? e.message : 'Could not generate invite.')
     } finally {
       setInviteLoading(false)
     }
@@ -267,7 +268,7 @@ export default function SettingsScreen() {
   const joinHousehold = async () => {
     const code = joinCode.trim().toUpperCase()
     if (code.length !== 6) {
-      Alert.alert('Invalid code', 'Please enter the 6-character invite code.')
+      showAlert('Invalid code', 'Please enter the 6-character invite code.')
       return
     }
     setJoinLoading(true)
@@ -283,11 +284,11 @@ export default function SettingsScreen() {
         .single()
 
       if (ie || !invite) {
-        Alert.alert('Invalid code', 'This invite code was not found. Check that it was entered correctly.')
+        showAlert('Invalid code', 'This invite code was not found. Check that it was entered correctly.')
         return
       }
       if (invite.expires_at && invite.expires_at < now) {
-        Alert.alert('Code expired', 'This invite code has expired. Ask the household owner to generate a new one.')
+        showAlert('Code expired', 'This invite code has expired. Ask the household owner to generate a new one.')
         return
       }
 
@@ -300,9 +301,9 @@ export default function SettingsScreen() {
       setHouseholdId(invite.household_id)
       setJoinModalOpen(false)
       setJoinCode('')
-      Alert.alert('Joined!', 'You have joined the household. Pull to refresh on any screen to see shared data.')
+      showAlert('Joined!', 'You have joined the household. Pull to refresh on any screen to see shared data.')
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Could not join household.')
+      showAlert('Error', e instanceof Error ? e.message : 'Could not join household.')
     } finally {
       setJoinLoading(false)
     }
@@ -315,16 +316,7 @@ export default function SettingsScreen() {
     setNotifModalOpen(true)
   }
 
-  const handleSignOut = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: () => supabase.auth.signOut(),
-      },
-    ])
-  }
+  const handleSignOut = () => setConfirmSignOut(true)
 
   return (
     <ScrollView
@@ -383,10 +375,9 @@ export default function SettingsScreen() {
           onPress={openThresholdEdit}
         />
         <View style={styles.separator} />
-        <TouchableOpacity
+        <Pressable
           style={styles.row}
           onPress={toggleThresholdEnabled}
-          activeOpacity={0.7}
         >
           <View style={styles.rowIcon}>
             <Ionicons name="notifications-outline" size={18} color={Colors.primary} />
@@ -395,7 +386,7 @@ export default function SettingsScreen() {
           <View style={[styles.toggle, thresholdEnabled && styles.toggleActive]}>
             <View style={[styles.toggleKnob, thresholdEnabled && styles.toggleKnobActive]} />
           </View>
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       {/* Threshold edit modal */}
@@ -421,15 +412,15 @@ export default function SettingsScreen() {
               />
             </View>
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.modalBtn, styles.modalBtnCancel]}
                 onPress={() => setEditingThreshold(false)}
               >
                 <Text style={styles.modalBtnCancelLabel}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveThreshold}>
+              </Pressable>
+              <Pressable style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveThreshold}>
                 <Text style={styles.modalBtnSaveLabel}>Save</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -438,17 +429,16 @@ export default function SettingsScreen() {
       {/* Credit Tracker reminders */}
       <SectionHeader title="Credit Tracker" />
       <View style={styles.section}>
-        {/* Card due date reminders */}
-        <TouchableOpacity
+        {/* Card due date reminder */}
+        <Pressable
           style={styles.row}
           onPress={() => openReminderEdit('card_due')}
-          activeOpacity={0.7}
         >
           <View style={styles.rowIcon}>
             <Ionicons name="calendar-outline" size={18} color={Colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.rowLabel}>Card Due Date Reminders</Text>
+            <Text style={styles.rowLabel}>Card Due Date Reminder</Text>
             <Text style={styles.rowSublabel}>
               {cardDue.enabled ? `${cardDue.lead_days} day${cardDue.lead_days !== 1 ? 's' : ''} before` : 'Off'}
             </Text>
@@ -456,43 +446,40 @@ export default function SettingsScreen() {
           <View style={[styles.toggle, cardDue.enabled && styles.toggleActive]}
             // Toggle tapped separately — suppress row press on knob area
           >
-            <TouchableOpacity
+            <Pressable
               onPress={() => toggleReminder('card_due')}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              activeOpacity={0.8}
             >
               <View style={[styles.toggleKnob, cardDue.enabled && styles.toggleKnobActive]} />
-            </TouchableOpacity>
+            </Pressable>
           </View>
-        </TouchableOpacity>
+        </Pressable>
 
         <View style={styles.separator} />
 
-        {/* Borrower payment reminders */}
-        <TouchableOpacity
+        {/* Borrower payment reminder */}
+        <Pressable
           style={styles.row}
           onPress={() => openReminderEdit('borrower_payment')}
-          activeOpacity={0.7}
         >
           <View style={styles.rowIcon}>
             <Ionicons name="time-outline" size={18} color={Colors.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.rowLabel}>Installment Payment Reminders</Text>
+            <Text style={styles.rowLabel}>Installment Payment Reminder</Text>
             <Text style={styles.rowSublabel}>
               {borrowerPayment.enabled ? `${borrowerPayment.lead_days} day${borrowerPayment.lead_days !== 1 ? 's' : ''} before` : 'Off'}
             </Text>
           </View>
           <View style={[styles.toggle, borrowerPayment.enabled && styles.toggleActive]}>
-            <TouchableOpacity
+            <Pressable
               onPress={() => toggleReminder('borrower_payment')}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              activeOpacity={0.8}
             >
               <View style={[styles.toggleKnob, borrowerPayment.enabled && styles.toggleKnobActive]} />
-            </TouchableOpacity>
+            </Pressable>
           </View>
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       {/* Reminder lead-days edit modal */}
@@ -521,15 +508,15 @@ export default function SettingsScreen() {
               <Text style={[styles.modalPeso, { fontSize: 16 }]}> days</Text>
             </View>
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.modalBtn, styles.modalBtnCancel]}
                 onPress={() => setEditingReminder(null)}
               >
                 <Text style={styles.modalBtnCancelLabel}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveReminder}>
+              </Pressable>
+              <Pressable style={[styles.modalBtn, styles.modalBtnSave]} onPress={saveReminder}>
                 <Text style={styles.modalBtnSaveLabel}>Save</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -566,13 +553,13 @@ export default function SettingsScreen() {
               onSubmitEditing={saveProfile}
             />
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.modalBtn, styles.modalBtnCancel]}
                 onPress={() => setProfileModalOpen(false)}
               >
                 <Text style={styles.modalBtnCancelLabel}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </Pressable>
+              <Pressable
                 style={[styles.modalBtn, styles.modalBtnSave, nameSaving && styles.modalBtnDisabled]}
                 onPress={saveProfile}
                 disabled={nameSaving}
@@ -580,7 +567,7 @@ export default function SettingsScreen() {
                 {nameSaving
                   ? <ActivityIndicator color={Colors.white} size="small" />
                   : <Text style={styles.modalBtnSaveLabel}>Save</Text>}
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -592,9 +579,9 @@ export default function SettingsScreen() {
           <View style={styles.modalBox}>
             <View style={styles.modalTitleRow}>
               <Text style={styles.modalTitle}>Household</Text>
-              <TouchableOpacity onPress={() => setHouseholdModalOpen(false)} hitSlop={12}>
+              <Pressable onPress={() => setHouseholdModalOpen(false)} hitSlop={12}>
                 <Ionicons name="close" size={20} color={Colors.text.secondary} />
-              </TouchableOpacity>
+              </Pressable>
             </View>
             {householdLoading ? (
               <ActivityIndicator color={Colors.primary} style={{ marginVertical: Spacing[4] }} />
@@ -625,22 +612,22 @@ export default function SettingsScreen() {
                   <>
                     <View style={styles.inviteCodeBox}>
                       <Text style={styles.inviteCode}>{inviteCode}</Text>
-                      <TouchableOpacity
+                      <Pressable
                         onPress={shareInviteCode}
                         style={styles.shareBtn}
                         hitSlop={8}
                       >
                         <Ionicons name="share-outline" size={18} color={Colors.primary} />
-                      </TouchableOpacity>
+                      </Pressable>
                     </View>
                     <Text style={styles.inviteExpiry}>Valid for 24 hours</Text>
-                    <TouchableOpacity onPress={() => setInviteCode(null)} hitSlop={8}>
+                    <Pressable onPress={() => setInviteCode(null)} hitSlop={8}>
                       <Text style={styles.regenerateLink}>Generate new code</Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   </>
                 ) : (
                   <View style={styles.modalActions}>
-                    <TouchableOpacity
+                    <Pressable
                       style={[styles.modalBtn, styles.modalBtnSave, inviteLoading && styles.modalBtnDisabled]}
                       onPress={generateInvite}
                       disabled={inviteLoading}
@@ -648,7 +635,7 @@ export default function SettingsScreen() {
                       {inviteLoading
                         ? <ActivityIndicator color={Colors.white} size="small" />
                         : <Text style={styles.modalBtnSaveLabel}>Generate Invite Code</Text>}
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
                 )}
               </>
@@ -682,13 +669,13 @@ export default function SettingsScreen() {
               onSubmitEditing={joinHousehold}
             />
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.modalBtn, styles.modalBtnCancel]}
                 onPress={() => setJoinModalOpen(false)}
               >
                 <Text style={styles.modalBtnCancelLabel}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </Pressable>
+              <Pressable
                 style={[styles.modalBtn, styles.modalBtnSave, joinLoading && styles.modalBtnDisabled]}
                 onPress={joinHousehold}
                 disabled={joinLoading}
@@ -696,7 +683,7 @@ export default function SettingsScreen() {
                 {joinLoading
                   ? <ActivityIndicator color={Colors.white} size="small" />
                   : <Text style={styles.modalBtnSaveLabel}>Join</Text>}
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -708,9 +695,9 @@ export default function SettingsScreen() {
           <View style={styles.modalBox}>
             <View style={styles.modalTitleRow}>
               <Text style={styles.modalTitle}>Notifications</Text>
-              <TouchableOpacity onPress={() => setNotifModalOpen(false)} hitSlop={12}>
+              <Pressable onPress={() => setNotifModalOpen(false)} hitSlop={12}>
                 <Ionicons name="close" size={20} color={Colors.text.secondary} />
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             <View style={[
@@ -739,28 +726,41 @@ export default function SettingsScreen() {
 
             <View style={[styles.modalActions, { flexDirection: 'column' }]}>
               {notifPermission !== 'granted' && (
-                <TouchableOpacity
+                <Pressable
                   style={[styles.modalBtn, styles.modalBtnSave, { flex: 0 }]}
                   onPress={() => { setNotifModalOpen(false); Linking.openSettings() }}
                 >
                   <Text style={styles.modalBtnSaveLabel}>Open Device Settings</Text>
-                </TouchableOpacity>
+                </Pressable>
               )}
-              <TouchableOpacity
+              <Pressable
                 style={[styles.modalBtn, styles.modalBtnCancel, { flex: 0 }]}
                 onPress={() => setNotifModalOpen(false)}
               >
                 <Text style={styles.modalBtnCancelLabel}>Done</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>
       </Modal>
+      <ConfirmModal
+        visible={confirmSignOut}
+        title="Sign Out"
+        message="Are you sure you want to sign out?"
+        confirmLabel="Sign Out"
+        destructive
+        onConfirm={() => { setConfirmSignOut(false); supabase.auth.signOut() }}
+        onCancel={() => setConfirmSignOut(false)}
+      />
+      {alertModal}
     </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
+  pressed: {
+    opacity: 0.65,
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.background,

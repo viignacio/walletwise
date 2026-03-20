@@ -54,7 +54,7 @@ export async function setReminderSetting(
     .from('notification_settings')
     .upsert(
       { user_id: user.id, type, reference_id: null, lead_days, enabled },
-      { onConflict: 'user_id,type' },
+      { onConflict: 'user_id,type,reference_id' },
     )
 
   if (error) throw error

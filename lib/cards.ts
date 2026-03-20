@@ -41,6 +41,17 @@ export async function updateCard(
 }
 
 export async function deleteCard(id: string): Promise<void> {
+  const { count, error: checkError } = await supabase
+    .from('lending_records')
+    .select('id', { count: 'exact', head: true })
+    .eq('card_id', id)
+    .neq('status', 'settled')
+  if (checkError) throw checkError
+  if (count && count > 0) {
+    throw new Error(
+      'This card has active installment records. Settle or delete them before removing the card.',
+    )
+  }
   const { error } = await supabase.from('cards').delete().eq('id', id)
   if (error) throw error
 }

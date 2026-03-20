@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -38,6 +37,8 @@ export default function AddInstallmentScreen() {
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const { showAlert, alertModal } = useAlertModal()
 
   useEffect(() => {
     if (!id) return
@@ -53,7 +54,7 @@ export default function AddInstallmentScreen() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Name required', 'Please enter a name.')
+      showAlert('Name required', 'Please enter a name.')
       return
     }
     setSaving(true)
@@ -69,28 +70,22 @@ export default function AddInstallmentScreen() {
       }
       router.back()
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleDelete = () => {
-    Alert.alert('Delete User', 'Are you sure? This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteInstallment(id!)
-            router.back()
-          } catch (e: unknown) {
-            Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong')
-          }
-        },
-      },
-    ])
+  const handleDelete = () => setConfirmDelete(true)
+
+  const confirmDeleteInstallment = async () => {
+    setConfirmDelete(false)
+    try {
+      await deleteInstallment(id!)
+      router.back()
+    } catch (e: unknown) {
+      showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
+    }
   }
 
   return (
@@ -164,6 +159,16 @@ export default function AddInstallmentScreen() {
           </Pressable>
         )}
       </ScrollView>
+      <ConfirmModal
+        visible={confirmDelete}
+        title="Delete Credit"
+        message="Are you sure? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDeleteInstallment}
+        onCancel={() => setConfirmDelete(false)}
+      />
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

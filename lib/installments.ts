@@ -41,6 +41,16 @@ export async function updateInstallment(
 }
 
 export async function deleteInstallment(id: string): Promise<void> {
+  const { count, error: countError } = await supabase
+    .from('lending_records')
+    .select('id', { count: 'exact', head: true })
+    .eq('installment_id', id)
+  if (countError) throw new Error(countError.message)
+  if (count && count > 0) {
+    throw new Error(
+      'This user has existing installment records and cannot be deleted. Settle all records first.',
+    )
+  }
   const { error } = await supabase.from('installments').delete().eq('id', id)
-  if (error) throw error
+  if (error) throw new Error(error.message)
 }

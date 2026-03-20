@@ -3,6 +3,7 @@ import { Slot, useRouter, useSegments } from 'expo-router'
 import { supabase } from '../lib/supabase'
 import { Session } from '@supabase/supabase-js'
 import { Text, View, ActivityIndicator } from 'react-native'
+import { StatusBar } from 'expo-status-bar'
 import { useFonts } from 'expo-font'
 import {
   IBMPlexSans_400Regular,
@@ -75,5 +76,10 @@ export default function RootLayout() {
     )
   }
 
-  return <Slot />
+  return (
+    <>
+      <StatusBar style="dark" />
+      <Slot />
+    </>
+  )
 }

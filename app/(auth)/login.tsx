@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import {
   View, TextInput, TouchableOpacity,
-  StyleSheet, Alert, KeyboardAvoidingView,
+  StyleSheet, KeyboardAvoidingView,
   Platform, ScrollView
 } from 'react-native'
-import { Text } from '../../components/ui'
+import { Text, useAlertModal } from '../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { supabase } from '../../lib/supabase'
 import { Colors, TextStyles, Spacing, Radius, Shadows } from '../../constants'
 import { useRouter } from 'expo-router'
+import * as WebBrowser from 'expo-web-browser'
+import * as Linking from 'expo-linking'
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('')
@@ -18,28 +20,82 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const { showAlert, alertModal } = useAlertModal()
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Missing fields', 'Please enter your email and password.')
+      showAlert('Missing fields', 'Please enter your email and password.')
       return
     }
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) Alert.alert('Sign in failed', error.message)
+    if (error) showAlert('Sign in failed', error.message)
     setLoading(false)
   }
 
   const handleGoogleLogin = async () => {
     setLoading(true)
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: 'walletwise://auth/callback',
-      },
-    })
-    if (error) Alert.alert('Google sign in failed', error.message)
-    setLoading(false)
+    try {
+      const redirectTo = 'walletwise://auth/callback'
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      })
+
+      if (error || !data?.url) {
+        showAlert('Google sign in failed', error?.message ?? 'Could not initiate sign in.')
+        return
+      }
+
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo)
+
+      if (result.type === 'success') {
+        const url = result.url
+
+        // Implicit flow: tokens in hash fragment (#access_token=...&refresh_token=...)
+        const hashIndex = url.indexOf('#')
+        if (hashIndex !== -1) {
+          const fragment = url.slice(hashIndex + 1)
+          const params: Record<string, string> = {}
+          fragment.split('&').forEach(pair => {
+            const eq = pair.indexOf('=')
+            if (eq !== -1) params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1))
+          })
+          if (params.access_token && params.refresh_token) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: params.access_token,
+              refresh_token: params.refresh_token,
+            })
+            if (sessionError) showAlert('Sign in failed', sessionError.message)
+            return
+          }
+        }
+
+        // PKCE flow: code in query params (?code=...)
+        const queryIndex = url.indexOf('?')
+        if (queryIndex !== -1) {
+          const query = url.slice(queryIndex + 1)
+          const params: Record<string, string> = {}
+          query.split('&').forEach(pair => {
+            const eq = pair.indexOf('=')
+            if (eq !== -1) params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1))
+          })
+          if (params.code) {
+            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code)
+            if (exchangeError) showAlert('Sign in failed', exchangeError.message)
+            return
+          }
+        }
+
+        showAlert('Sign in failed', 'No authorization code received.')
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -89,6 +145,8 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
                 returnKeyType="done"
                 onSubmitEditing={handleEmailLogin}
               />
@@ -144,6 +202,7 @@ export default function LoginScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+      {alertModal}
     </KeyboardAvoidingView>
   )
 }

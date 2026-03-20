@@ -1,4 +1,4 @@
-import { useCallback, memo, useState } from 'react'
+import { useCallback, memo, useState, useRef } from 'react'
 import {
   ActivityIndicator,
   Pressable,
@@ -220,14 +220,16 @@ export default function CreditScreen() {
   const [installments, setInstallments] = useState<Installment[]>([])
   const [groups, setGroups] = useState<RecordsByInstallment[]>([])
   const [loading, setLoading] = useState(true)
+  const initialized = useRef(false)
 
   useFocusEffect(
     useCallback(() => {
       let active = true
-      setLoading(true)
+      if (!initialized.current) setLoading(true)
       Promise.all([getCards(), getInstallments(), getRecordsByInstallment()])
         .then(([c, i, g]) => {
           if (!active) return
+          initialized.current = true
           setCards(c)
           setInstallments(i)
           setGroups(g)

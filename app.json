@@ -16,19 +16,25 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.walletwise.app"
     },
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "#FFFFFF"
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.walletwise.app"
+      "package": "com.walletwise.app",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro"
     },
     "scheme": "walletwise",
     "plugins": [
+      "expo-dev-client",
       "expo-router",
       "expo-secure-store",
       "expo-web-browser",
@@ -52,6 +58,12 @@
         }
       ],
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "02124cb6-bd4d-42e7-b8ba-b88f7f635f94"
+      }
+    }
   }
 }

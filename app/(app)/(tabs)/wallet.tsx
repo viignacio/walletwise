@@ -244,7 +244,7 @@ function YTDTable({
           <Text
             style={[
               styles.ytdCell,
-              { flex: 1.5, textAlign: 'right', color: row.balance < 0 ? Colors.expense : Colors.text.primary, fontWeight: '600' },
+              { flex: 1.5, textAlign: 'right', color: row.balance < 0 ? Colors.expense : Colors.text.primary, fontFamily: FontFamily.semiBold, fontWeight: FontWeight.semiBold },
             ]}
           >
             {formatAmount(row.balance)}
@@ -283,6 +283,7 @@ export default function WalletScreen() {
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const initialized = useRef(false)
 
   // FAB press animation
   const fabScale = useSharedValue(1)
@@ -330,6 +331,7 @@ export default function WalletScreen() {
     } catch (e) {
       console.warn('Wallet load error:', e)
     } finally {
+      initialized.current = true
       setLoading(false)
       setRefreshing(false)
     }
@@ -337,7 +339,7 @@ export default function WalletScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true)
+      if (!initialized.current) setLoading(true)
       loadData()
     }, [loadData])
   )
@@ -538,7 +540,8 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
   toggleLabelActive: {
-    color: Colors.text.primary,
+    color: Colors.primary,
+    fontFamily: FontFamily.semiBold,
   },
   navHeader: {
     flexDirection: 'row',
@@ -577,7 +580,7 @@ const styles = StyleSheet.create({
   },
   balanceDivider: {
     height: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.border,
     marginVertical: 6,
   },
   balanceClosingRow: {
@@ -633,9 +636,9 @@ const styles = StyleSheet.create({
     gap: Spacing[3],
   },
   txIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.sm,
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -697,16 +700,16 @@ const styles = StyleSheet.create({
     color: Colors.expense,
   },
   catBarBg: {
-    height: 4,
-    backgroundColor: Colors.background,
-    borderRadius: 2,
+    height: 6,
+    backgroundColor: Colors.border,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   catBarFill: {
-    height: 4,
+    height: 6,
     backgroundColor: Colors.expense,
-    borderRadius: 2,
-    opacity: 0.6,
+    borderRadius: 3,
+    opacity: 0.7,
   },
   // YTD table
   ytdTable: {
@@ -721,7 +724,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing[3],
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.primaryMuted,
   },
   ytdHeaderCell: {
     ...TextStyles.labelSm,
