@@ -37,6 +37,7 @@ export default function AddInstallmentScreen() {
   const [name, setName] = useState('')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { showAlert, alertModal } = useAlertModal()
 
@@ -79,11 +80,13 @@ export default function AddInstallmentScreen() {
   const handleDelete = () => setConfirmDelete(true)
 
   const confirmDeleteInstallment = async () => {
-    setConfirmDelete(false)
+    setDeleting(true)
     try {
       await deleteInstallment(id!)
       router.back()
     } catch (e: unknown) {
+      setDeleting(false)
+      setConfirmDelete(false)
       showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     }
   }
@@ -165,6 +168,7 @@ export default function AddInstallmentScreen() {
         message="Are you sure? This cannot be undone."
         confirmLabel="Delete"
         destructive
+        loading={deleting}
         onConfirm={confirmDeleteInstallment}
         onCancel={() => setConfirmDelete(false)}
       />

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -14,7 +14,7 @@ import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { Colors, TextStyles, Spacing, Radius, Layout } from '../../constants'
+import { Colors, TextStyles, Spacing, Radius, Layout, Shadows } from '../../constants'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../../constants/categories'
 import { supabase } from '../../lib/supabase'
 import {
@@ -47,6 +47,7 @@ export default function EditTransactionScreen() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmDeleteRecurring, setConfirmDeleteRecurring] = useState(false)
   const { showAlert, alertModal } = useAlertModal()
 
   // Load transaction
@@ -156,22 +157,7 @@ export default function EditTransactionScreen() {
     if (!original) return
 
     if (isRecurring && original.recurring_group_id) {
-      Alert.alert(
-        'Delete Recurring Expense',
-        `Remove "${original.description}"?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'This month only',
-            onPress: () => executeDelete(false),
-          },
-          {
-            text: 'This and future',
-            style: 'destructive',
-            onPress: () => executeDelete(true),
-          },
-        ]
-      )
+      setConfirmDeleteRecurring(true)
     } else {
       setConfirmDelete(true)
     }
@@ -204,6 +190,8 @@ export default function EditTransactionScreen() {
       router.back()
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Something went wrong'
+      setConfirmDelete(false)
+      setConfirmDeleteRecurring(false)
       showAlert('Error', msg)
     } finally {
       setDeleting(false)
@@ -363,9 +351,49 @@ export default function EditTransactionScreen() {
         message={original ? `Remove "${original.description}" (${formatAmount(Number(original.amount))})? This cannot be undone.` : 'This cannot be undone.'}
         confirmLabel="Delete"
         destructive
+        loading={deleting}
         onConfirm={confirmDeleteTransaction}
         onCancel={() => setConfirmDelete(false)}
       />
+      <Modal
+        visible={confirmDeleteRecurring}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={deleting ? undefined : () => setConfirmDeleteRecurring(false)}
+      >
+        <Pressable style={styles.recScrim} onPress={deleting ? undefined : () => setConfirmDeleteRecurring(false)}>
+          <Pressable style={styles.recSheet} onPress={() => {}}>
+            <Text style={styles.recTitle}>Delete Recurring Expense</Text>
+            <Text style={styles.recMessage}>
+              {original ? `Remove "${original.description}"?` : 'Choose how to delete this recurring expense.'}
+            </Text>
+            <View style={styles.recDivider} />
+            <Pressable
+              style={[styles.recBtn, deleting && styles.btnDisabled]}
+              onPress={deleting ? undefined : () => executeDelete(false)}
+              disabled={deleting}
+            >
+              {deleting ? <ActivityIndicator size="small" color={Colors.primary} /> : <Text style={styles.recBtnLabel}>This month only</Text>}
+            </Pressable>
+            <View style={styles.recDivider} />
+            <Pressable
+              style={[styles.recBtn, deleting && styles.btnDisabled]}
+              onPress={deleting ? undefined : () => executeDelete(true)}
+              disabled={deleting}
+            >
+              {deleting ? <ActivityIndicator size="small" color={Colors.expense} /> : <Text style={styles.recDestructiveLabel}>This and future months</Text>}
+            </Pressable>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.recCancelSheet, deleting && styles.btnDisabled, pressed && !deleting && styles.recPressed]}
+            onPress={deleting ? undefined : () => setConfirmDeleteRecurring(false)}
+            disabled={deleting}
+          >
+            <Text style={styles.recCancelLabel}>Cancel</Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
       {alertModal}
     </KeyboardAvoidingView>
   )
@@ -525,5 +553,66 @@ const styles = StyleSheet.create({
   recurringBadgeLabel: {
     ...TextStyles.caption,
     color: Colors.primary,
+  },
+  recScrim: {
+    flex: 1,
+    backgroundColor: Colors.overlay,
+    justifyContent: 'flex-end',
+    paddingHorizontal: Spacing[4],
+    paddingBottom: Spacing[8],
+    gap: Spacing[2],
+  },
+  recSheet: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    ...Shadows.modal,
+    overflow: 'hidden',
+  },
+  recTitle: {
+    ...TextStyles.h3,
+    color: Colors.text.primary,
+    textAlign: 'center',
+    paddingTop: Spacing[6],
+    paddingHorizontal: Spacing[5],
+  },
+  recMessage: {
+    ...TextStyles.body,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    paddingTop: Spacing[2],
+    paddingBottom: Spacing[6],
+    paddingHorizontal: Spacing[5],
+  },
+  recDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.border,
+  },
+  recBtn: {
+    height: Layout.buttonHeight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recCancelSheet: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    height: Layout.buttonHeight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Shadows.modal,
+  },
+  recPressed: {
+    backgroundColor: Colors.surfaceMuted,
+  },
+  recBtnLabel: {
+    ...TextStyles.labelLg,
+    color: Colors.primary,
+  },
+  recDestructiveLabel: {
+    ...TextStyles.labelLg,
+    color: Colors.expense,
+  },
+  recCancelLabel: {
+    ...TextStyles.labelLg,
+    color: Colors.text.secondary,
   },
 })

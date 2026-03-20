@@ -1,4 +1,5 @@
-import { Modal, Pressable, StyleSheet, View } from 'react-native'
+import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from 'react-native'
+import { useEffect, useRef } from 'react'
 import { Text } from './Text'
 import { Colors, Layout, Radius, Shadows, Spacing, TextStyles } from '../../constants'
 
@@ -9,6 +10,7 @@ interface ConfirmModalProps {
   confirmLabel?: string
   cancelLabel?: string
   destructive?: boolean
+  loading?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -20,39 +22,55 @@ export function ConfirmModal({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   destructive = false,
+  loading = false,
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
+  const confirmedRef = useRef(false)
+
+  useEffect(() => {
+    if (!visible) confirmedRef.current = false
+  }, [visible])
+
+  const handleConfirm = () => {
+    if (confirmedRef.current || loading) return
+    confirmedRef.current = true
+    onConfirm()
+  }
+
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
       statusBarTranslucent
-      onRequestClose={onCancel}
+      onRequestClose={loading ? undefined : onCancel}
     >
-      <Pressable style={styles.scrim} onPress={onCancel}>
+      <Pressable style={styles.scrim} onPress={loading ? undefined : onCancel}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           <View style={styles.divider} />
-          <View style={styles.actions}>
-            <Pressable
-              style={({ pressed }) => [styles.btn, styles.cancelBtn, pressed && styles.pressed]}
-              onPress={onCancel}
-            >
-              <Text style={styles.cancelLabel}>{cancelLabel}</Text>
-            </Pressable>
-            <View style={styles.btnDivider} />
-            <Pressable
-              style={({ pressed }) => [styles.btn, styles.confirmBtn, pressed && styles.pressed]}
-              onPress={onConfirm}
-            >
+          <Pressable
+            style={[styles.btn, styles.confirmBtn, loading && styles.btnDisabled]}
+            onPress={handleConfirm}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color={destructive ? Colors.expense : Colors.primary} />
+            ) : (
               <Text style={[styles.confirmLabel, destructive && styles.destructiveLabel]}>
                 {confirmLabel}
               </Text>
-            </Pressable>
-          </View>
+            )}
+          </Pressable>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.cancelSheet, loading && styles.btnDisabled, pressed && !loading && styles.pressed]}
+          onPress={loading ? undefined : onCancel}
+          disabled={loading}
+        >
+          <Text style={styles.cancelLabel}>{cancelLabel}</Text>
         </Pressable>
       </Pressable>
     </Modal>
@@ -63,15 +81,16 @@ const styles = StyleSheet.create({
   scrim: {
     flex: 1,
     backgroundColor: Colors.overlay,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing[8],
+    justifyContent: 'flex-end',
+    paddingHorizontal: Spacing[4],
+    paddingBottom: Spacing[8],
+    gap: Spacing[2],
   },
   sheet: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg,
-    width: '100%',
     ...Shadows.modal,
+    overflow: 'hidden',
   },
   title: {
     ...TextStyles.h3,
@@ -92,27 +111,23 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.border,
   },
-  actions: {
-    flexDirection: 'row',
-    height: Layout.buttonHeight,
-  },
   btn: {
-    flex: 1,
+    height: Layout.buttonHeight,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  cancelBtn: {
-    borderBottomLeftRadius: Radius.lg,
-  },
-  confirmBtn: {
-    borderBottomRightRadius: Radius.lg,
-  },
+  confirmBtn: {},
+  btnDisabled: { opacity: 0.6 },
   pressed: {
     backgroundColor: Colors.surfaceMuted,
   },
-  btnDivider: {
-    width: StyleSheet.hairlineWidth,
-    backgroundColor: Colors.border,
+  cancelSheet: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    height: Layout.buttonHeight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Shadows.modal,
   },
   cancelLabel: {
     ...TextStyles.labelLg,

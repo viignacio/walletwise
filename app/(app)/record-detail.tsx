@@ -171,6 +171,7 @@ export default function RecordDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const [data, setData] = useState<LendingRecordWithPayments | null>(null)
   const [loading, setLoading] = useState(true)
+  const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { showAlert, alertModal } = useAlertModal()
 
@@ -189,11 +190,13 @@ export default function RecordDetailScreen() {
   const handleDelete = () => setConfirmDelete(true)
 
   const confirmDeleteRecord = async () => {
-    setConfirmDelete(false)
+    setDeleting(true)
     try {
       await deleteRecord(id)
       router.back()
     } catch (e: unknown) {
+      setDeleting(false)
+      setConfirmDelete(false)
       showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     }
   }
@@ -271,6 +274,7 @@ export default function RecordDetailScreen() {
         message="This will also delete all payment rows. This cannot be undone."
         confirmLabel="Delete"
         destructive
+        loading={deleting}
         onConfirm={confirmDeleteRecord}
         onCancel={() => setConfirmDelete(false)}
       />

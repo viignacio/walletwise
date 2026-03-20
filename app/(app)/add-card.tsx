@@ -47,6 +47,7 @@ export default function AddCardScreen() {
   const [dueDateDay, setDueDateDay] = useState('')
   const [color, setColor] = useState<string>(CARD_COLORS[0])
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { showAlert, alertModal } = useAlertModal()
 
@@ -111,11 +112,13 @@ export default function AddCardScreen() {
   const handleDelete = () => setConfirmDelete(true)
 
   const confirmDeleteCard = async () => {
-    setConfirmDelete(false)
+    setDeleting(true)
     try {
       await deleteCard(id!)
       router.back()
     } catch (e: unknown) {
+      setDeleting(false)
+      setConfirmDelete(false)
       showAlert('Error', e instanceof Error ? e.message : 'Something went wrong')
     }
   }
@@ -248,6 +251,7 @@ export default function AddCardScreen() {
         message="Are you sure? This cannot be undone."
         confirmLabel="Delete"
         destructive
+        loading={deleting}
         onConfirm={confirmDeleteCard}
         onCancel={() => setConfirmDelete(false)}
       />
