@@ -11,12 +11,14 @@
     },
     "preview": {
       "distribution": "internal",
+      "channel": "main",
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "distribution": "store",
+      "channel": "main",
       "android": {
         "buildType": "app-bundle",
         "gradleCommand": ":app:bundleRelease"

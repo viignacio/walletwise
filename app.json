@@ -33,6 +33,15 @@
       "bundler": "metro"
     },
     "scheme": "walletwise",
+    "updates": {
+      "url": "https://u.expo.dev/02124cb6-bd4d-42e7-b8ba-b88f7f635f94",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "plugins": [
       "expo-dev-client",
       "expo-router",
