@@ -31,6 +31,7 @@ async function sumBefore(householdId: string, beforeDate: string): Promise<numbe
     .from('transactions')
     .select('type, amount')
     .eq('household_id', householdId)
+    .eq('is_pending', false)
     .lt('date', beforeDate)
 
   if (error) throw new Error(error.message)
@@ -46,6 +47,7 @@ export async function fetchRunningBalance(householdId: string): Promise<number> 
     .from('transactions')
     .select('type, amount')
     .eq('household_id', householdId)
+    .eq('is_pending', false)
 
   if (error) throw new Error(error.message)
   return (data ?? []).reduce(
@@ -70,6 +72,7 @@ export async function fetchMonthTransactions(
     .from('transactions')
     .select('*')
     .eq('household_id', householdId)
+    .eq('is_pending', false)
     .gte('date', start)
     .lte('date', endStr)
     .order('date', { ascending: true })
@@ -95,6 +98,7 @@ export async function fetchMonthlyBalance(
       .from('transactions')
       .select('type, amount')
       .eq('household_id', householdId)
+      .eq('is_pending', false)
       .gte('date', startDate)
       .lte('date', endDate),
   ])
@@ -158,6 +162,7 @@ export async function fetchYTDRows(
     .from('transactions')
     .select('type, amount, date')
     .eq('household_id', householdId)
+    .eq('is_pending', false)
     .gte('date', yearStart)
     .lte('date', yearEnd)
     .order('date', { ascending: true })
@@ -201,7 +206,10 @@ export interface AddTransactionInput {
   category: string
   description: string
   date: string
-  notes?: string
+  notes?: string | null
+  is_recurring?: boolean
+  recurring_group_id?: string
+  is_pending?: boolean
 }
 
 export async function addTransaction(input: AddTransactionInput): Promise<Transaction> {

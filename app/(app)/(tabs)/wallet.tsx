@@ -155,9 +155,14 @@ const TransactionItem = memo(function TransactionItem({
         />
       </View>
       <View style={styles.txMeta}>
-        <Text style={styles.txDescription} numberOfLines={1}>
-          {transaction.description}
-        </Text>
+        <View style={styles.txDescriptionRow}>
+          <Text style={styles.txDescription} numberOfLines={1}>
+            {transaction.description}
+          </Text>
+          {transaction.is_recurring && (
+            <Ionicons name="repeat-outline" size={13} color={Colors.text.muted} />
+          )}
+        </View>
         <Text style={styles.txSub}>
           {authorName.split(' ')[0]} · {transaction.category}
         </Text>
@@ -646,11 +651,17 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  txDescriptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   txDescription: {
     ...TextStyles.bodySm,
     fontWeight: FontWeight.semiBold,
     fontFamily: FontFamily.semiBold,
     color: Colors.text.primary,
+    flexShrink: 1,
   },
   txSub: {
     ...TextStyles.caption,

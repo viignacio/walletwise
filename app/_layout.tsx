@@ -16,6 +16,7 @@ import {
   IBMPlexMono_600SemiBold,
 } from '@expo-google-fonts/ibm-plex-mono'
 import { Colors } from '../constants/colors'
+import { activatePendingTransactions } from '../lib/recurring'
 
 // The config plugin (app.json) embeds fonts at native build time for fast availability.
 // useFonts registers them under our key names — required on iOS, which uses PostScript
@@ -55,6 +56,13 @@ export default function RootLayout() {
 
     return () => subscription.unsubscribe()
   }, [])
+
+  // Silently activate any pending recurring transactions on app open.
+  // Runs in the background — does not block the UI or affect the loading state.
+  useEffect(() => {
+    if (!session?.user.id) return
+    activatePendingTransactions(session.user.id).catch(() => {})
+  }, [session?.user.id])
 
   useEffect(() => {
     if (loading) return

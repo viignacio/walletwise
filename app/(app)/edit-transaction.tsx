@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -22,6 +23,7 @@ import {
   formatAmount,
   isBalanceBelowThreshold,
 } from '../../lib/wallet'
+import { deleteFutureRecurrences } from '../../lib/recurring'
 import { getProfile } from '../../lib/profile'
 import { sendHouseholdPush, sendAllHouseholdPush } from '../../lib/notifications'
 import { useToast } from '../../contexts/ToastContext'
@@ -40,6 +42,7 @@ export default function EditTransactionScreen() {
   const [description, setDescription] = useState('')
   const [date, setDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [isRecurring, setIsRecurring] = useState(false)
   const [loadingTx, setLoadingTx] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -68,6 +71,7 @@ export default function EditTransactionScreen() {
         setDescription(tx.description)
         setDate(tx.date)
         setNotes(tx.notes ?? '')
+        setIsRecurring(tx.is_recurring ?? false)
         setLoadingTx(false)
       })
   }, [id])
@@ -150,16 +154,38 @@ export default function EditTransactionScreen() {
 
   const handleDelete = () => {
     if (!original) return
-    setConfirmDelete(true)
+
+    if (isRecurring && original.recurring_group_id) {
+      Alert.alert(
+        'Delete Recurring Expense',
+        `Remove "${original.description}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'This month only',
+            onPress: () => executeDelete(false),
+          },
+          {
+            text: 'This and future',
+            style: 'destructive',
+            onPress: () => executeDelete(true),
+          },
+        ]
+      )
+    } else {
+      setConfirmDelete(true)
+    }
   }
 
-  const confirmDeleteTransaction = async () => {
+  const executeDelete = async (includeFuture: boolean) => {
     if (!original) return
-    setConfirmDelete(false)
     setDeleting(true)
     try {
       const profile = await getProfile()
 
+      if (includeFuture && original.recurring_group_id) {
+        await deleteFutureRecurrences(original.recurring_group_id)
+      }
       await deleteTransaction(id)
 
       const { balance } = await isBalanceBelowThreshold(profile.household_id)
@@ -183,6 +209,8 @@ export default function EditTransactionScreen() {
       setDeleting(false)
     }
   }
+
+  const confirmDeleteTransaction = () => executeDelete(false)
 
   if (loadingTx) {
     return (
@@ -231,6 +259,14 @@ export default function EditTransactionScreen() {
             </Text>
           </Pressable>
         </View>
+
+        {/* Recurring badge */}
+        {isRecurring && (
+          <View style={styles.recurringBadge}>
+            <Ionicons name="repeat-outline" size={14} color={Colors.primary} />
+            <Text style={styles.recurringBadgeLabel}>Recurring monthly expense</Text>
+          </View>
+        )}
 
         {/* Amount */}
         <FormLabel>Amount (PHP)</FormLabel>
@@ -474,5 +510,20 @@ const styles = StyleSheet.create({
     ...TextStyles.labelLg,
     fontWeight: '700' as const,
     color: Colors.expense,
+  },
+  recurringBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[2],
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: Spacing[1] + 2,
+    borderRadius: Radius.xs,
+    backgroundColor: `${Colors.primary}14`,
+    marginBottom: Spacing[3],
+  },
+  recurringBadgeLabel: {
+    ...TextStyles.caption,
+    color: Colors.primary,
   },
 })

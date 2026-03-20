@@ -19,6 +19,7 @@ import { getProfile } from '../../lib/profile'
 import { sendHouseholdPush, sendAllHouseholdPush } from '../../lib/notifications'
 import { useToast } from '../../contexts/ToastContext'
 import { TransactionType } from '../../types/database'
+import * as Crypto from 'expo-crypto'
 
 function today(): string {
   return new Date().toISOString().split('T')[0]
@@ -35,6 +36,7 @@ export default function AddTransactionScreen() {
   const [description, setDescription] = useState('')
   const [date, setDate] = useState(today())
   const [notes, setNotes] = useState('')
+  const [isRecurring, setIsRecurring] = useState(false)
   const [saving, setSaving] = useState(false)
   // Track whether the user manually picked a category so we don't override their choice
   const [categoryManuallySet, setCategoryManuallySet] = useState(false)
@@ -50,6 +52,8 @@ export default function AddTransactionScreen() {
       setCategory('')
       setCategoryManuallySet(false)
     }
+    // Recurring is only supported for expenses
+    if (newType === 'income') setIsRecurring(false)
   }
 
   const handleCategoryPress = (cat: string) => {
@@ -86,7 +90,9 @@ export default function AddTransactionScreen() {
       const profile = await getProfile()
 
       const amountNum = parseFloat(parseFloat(amount).toFixed(2))
-      const tx = await addTransaction({
+      const recurringGroupId = isRecurring ? Crypto.randomUUID() : undefined
+
+      await addTransaction({
         household_id: profile.household_id,
         user_id: profile.id,
         type,
@@ -94,8 +100,33 @@ export default function AddTransactionScreen() {
         category,
         description: description.trim(),
         date,
-        notes: notes.trim() || undefined,
+        notes: notes.trim() || null,
+        is_recurring: isRecurring,
+        recurring_group_id: recurringGroupId,
+        is_pending: false,
       })
+
+      // If recurring, pre-generate next month's pending transaction (always on the 1st)
+      if (isRecurring && recurringGroupId) {
+        const [year, month] = date.split('-').map(Number)
+        const nextMonth = month === 12 ? 1 : month + 1
+        const nextYear = month === 12 ? year + 1 : year
+        const nextDate = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`
+
+        await addTransaction({
+          household_id: profile.household_id,
+          user_id: profile.id,
+          type,
+          amount: amountNum,
+          category,
+          description: description.trim(),
+          date: nextDate,
+          notes: notes.trim() || null,
+          is_recurring: true,
+          recurring_group_id: recurringGroupId,
+          is_pending: true,
+        })
+      }
 
       // Compute new balance for notification messages
       const { balance } = await isBalanceBelowThreshold(profile.household_id)
@@ -244,6 +275,25 @@ export default function AddTransactionScreen() {
           returnKeyType="default"
         />
 
+        {/* Recurring toggle — expenses only */}
+        {type === 'expense' && (
+          <Pressable
+            style={({ pressed }) => [styles.recurringRow, pressed && styles.pressed]}
+            onPress={() => setIsRecurring(r => !r)}
+            hitSlop={8}
+          >
+            <View style={[styles.checkbox, isRecurring && styles.checkboxChecked]}>
+              {isRecurring && <Ionicons name="checkmark" size={14} color={Colors.white} />}
+            </View>
+            <View style={styles.recurringTextGroup}>
+              <Text style={styles.recurringLabel}>Repeat monthly</Text>
+              <Text style={styles.recurringHint}>
+                Auto-adds this expense on the following month
+              </Text>
+            </View>
+          </Pressable>
+        )}
+
         {/* Save button */}
         <Pressable
           style={({ pressed }) => [
@@ -375,6 +425,44 @@ const styles = StyleSheet.create({
   },
   catChipLabelActive: {
     color: Colors.white,
+  },
+  recurringRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[3],
+    marginTop: Layout.cardPadding,
+    paddingVertical: Spacing[3],
+    paddingHorizontal: 14,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: Radius.xs,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  recurringTextGroup: {
+    flex: 1,
+    gap: 2,
+  },
+  recurringLabel: {
+    ...TextStyles.label,
+    color: Colors.text.primary,
+  },
+  recurringHint: {
+    ...TextStyles.caption,
+    color: Colors.text.secondary,
   },
   saveBtn: {
     marginTop: Spacing[8] - 4, // 28

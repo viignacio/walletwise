@@ -39,6 +39,9 @@ export interface Transaction {
   description: string
   date: string
   notes: string | null
+  is_recurring: boolean
+  recurring_group_id: string | null
+  is_pending: boolean
   created_at: string
   updated_at: string
 }
