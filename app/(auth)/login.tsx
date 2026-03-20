@@ -1,27 +1,32 @@
 import { useState } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity,
+  View, TextInput, TouchableOpacity,
   StyleSheet, Alert, KeyboardAvoidingView,
   Platform, ScrollView
 } from 'react-native'
+import { Text } from '../../components/ui'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import Ionicons from '@expo/vector-icons/Ionicons'
 import { supabase } from '../../lib/supabase'
-import { Colors } from '../../constants/colors'
+import { Colors, TextStyles, Spacing, Radius, Shadows } from '../../constants'
 import { useRouter } from 'expo-router'
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const insets = useSafeAreaInsets()
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter your email and password')
+      Alert.alert('Missing fields', 'Please enter your email and password.')
       return
     }
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) Alert.alert('Error', error.message)
+    if (error) Alert.alert('Sign in failed', error.message)
     setLoading(false)
   }
 
@@ -33,7 +38,7 @@ export default function LoginScreen() {
         redirectTo: 'walletwise://auth/callback',
       },
     })
-    if (error) Alert.alert('Error', error.message)
+    if (error) Alert.alert('Google sign in failed', error.message)
     setLoading(false)
   }
 
@@ -42,41 +47,73 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Brand */}
         <View style={styles.header}>
+          <View style={styles.logoMark}>
+            <Ionicons name="wallet" size={32} color={Colors.white} />
+          </View>
           <Text style={styles.title}>WalletWise</Text>
           <Text style={styles.subtitle}>Household & Lending Finance</Text>
         </View>
 
-        <View style={styles.form}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="you@example.com"
-            placeholderTextColor={Colors.text.light}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
+        {/* Form */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Sign in</Text>
 
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="••••••••"
-            placeholderTextColor={Colors.text.light}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="you@example.com"
+              placeholderTextColor={Colors.text.muted}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              returnKeyType="next"
+            />
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Password</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={[styles.input, styles.inputWithIcon]}
+                placeholder="Enter your password"
+                placeholderTextColor={Colors.text.muted}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                returnKeyType="done"
+                onSubmitEditing={handleEmailLogin}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowPassword(v => !v)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={20}
+                  color={Colors.text.secondary}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
 
           <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+            style={[styles.primaryButton, loading && styles.buttonDisabled]}
             onPress={handleEmailLogin}
             disabled={loading}
+            activeOpacity={0.8}
           >
-            <Text style={styles.buttonText}>
-              {loading ? 'Signing in...' : 'Sign In'}
+            <Text style={styles.primaryButtonText}>
+              {loading ? 'Signing in…' : 'Sign In'}
             </Text>
           </TouchableOpacity>
 
@@ -87,22 +124,25 @@ export default function LoginScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.googleButton, loading && styles.buttonDisabled]}
+            style={[styles.secondaryButton, loading && styles.buttonDisabled]}
             onPress={handleGoogleLogin}
             disabled={loading}
+            activeOpacity={0.8}
           >
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.registerLink}
-            onPress={() => router.push('/(auth)/register')}
-          >
-            <Text style={styles.registerLinkText}>
-              Don't have an account? <Text style={styles.registerLinkBold}>Sign Up</Text>
-            </Text>
+            <Ionicons name="logo-google" size={18} color={Colors.text.primary} />
+            <Text style={styles.secondaryButtonText}>Continue with Google</Text>
           </TouchableOpacity>
         </View>
+
+        <TouchableOpacity
+          style={styles.footerLink}
+          onPress={() => router.push('/(auth)/register')}
+        >
+          <Text style={styles.footerLinkText}>
+            Don't have an account?{' '}
+            <Text style={styles.footerLinkBold}>Sign Up</Text>
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   )
@@ -115,63 +155,94 @@ const styles = StyleSheet.create({
   },
   scroll: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
+    paddingHorizontal: Spacing[6],
   },
   header: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: Spacing[8],
+  },
+  logoMark: {
+    width: 64,
+    height: 64,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: Spacing[4],
+    ...Shadows.md,
   },
   title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: Colors.primary,
-    letterSpacing: -0.5,
+    ...TextStyles.h1,
+    color: Colors.text.primary,
   },
   subtitle: {
-    fontSize: 14,
+    ...TextStyles.bodySm,
     color: Colors.text.secondary,
-    marginTop: 4,
+    marginTop: Spacing[1],
   },
-  form: {
-    gap: 8,
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing[6],
+    ...Shadows.sm,
+    gap: 0,
+  },
+  cardTitle: {
+    ...TextStyles.h3,
+    color: Colors.text.primary,
+    marginBottom: Spacing[5],
+  },
+  fieldGroup: {
+    marginBottom: Spacing[4],
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
+    ...TextStyles.label,
     color: Colors.text.primary,
-    marginBottom: 4,
-    marginTop: 8,
+    marginBottom: 6,
   },
   input: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
+    borderRadius: Radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    ...TextStyles.labelLg,
     color: Colors.text.primary,
   },
-  button: {
+  inputWrapper: {
+    position: 'relative',
+  },
+  inputWithIcon: {
+    paddingRight: 44,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
+  primaryButton: {
     backgroundColor: Colors.primary,
-    borderRadius: 10,
-    padding: 16,
+    borderRadius: Radius.sm,
+    paddingVertical: 15,
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: Spacing[2],
+  },
+  primaryButtonText: {
+    ...TextStyles.labelLg,
+    fontWeight: '700' as const,
+    color: Colors.white,
   },
   buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '600',
+    opacity: 0.55,
   },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 16,
-    gap: 12,
+    marginVertical: Spacing[5],
+    gap: Spacing[3],
   },
   dividerLine: {
     flex: 1,
@@ -179,32 +250,35 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.border,
   },
   dividerText: {
-    color: Colors.text.secondary,
-    fontSize: 14,
+    ...TextStyles.bodySm,
+    color: Colors.text.muted,
   },
-  googleButton: {
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing[2],
     backgroundColor: Colors.white,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 10,
-    padding: 16,
-    alignItems: 'center',
+    borderRadius: Radius.sm,
+    paddingVertical: 14,
   },
-  googleButtonText: {
+  secondaryButtonText: {
+    ...TextStyles.labelLg,
     color: Colors.text.primary,
-    fontSize: 16,
-    fontWeight: '600',
   },
-  registerLink: {
+  footerLink: {
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: Spacing[6],
+    paddingVertical: Spacing[1],
   },
-  registerLinkText: {
+  footerLinkText: {
+    ...TextStyles.bodySm,
     color: Colors.text.secondary,
-    fontSize: 14,
   },
-  registerLinkBold: {
+  footerLinkBold: {
     color: Colors.primary,
-    fontWeight: '600',
+    fontWeight: '700' as const,
   },
 })

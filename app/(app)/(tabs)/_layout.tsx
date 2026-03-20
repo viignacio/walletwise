@@ -1,6 +1,14 @@
 import { Tabs } from 'expo-router'
 import { Colors } from '../../../constants/colors'
-import { Text } from 'react-native'
+import Ionicons from '@expo/vector-icons/Ionicons'
+
+type IoniconsName = React.ComponentProps<typeof Ionicons>['name']
+
+function tabIcon(name: IoniconsName, focusedName: IoniconsName) {
+  return ({ color, focused }: { color: string; focused: boolean }) => (
+    <Ionicons name={focused ? focusedName : name} size={22} color={color} />
+  )
+}
 
 export default function TabsLayout() {
   return (
@@ -11,12 +19,13 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: Colors.white,
           borderTopColor: Colors.border,
-          paddingBottom: 6,
+          borderTopWidth: 1,
+          paddingBottom: 8,
           paddingTop: 6,
-          height: 60,
+          height: 64,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '600',
         },
         headerStyle: {
@@ -34,28 +43,28 @@ export default function TabsLayout() {
         name="dashboard"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>⊞</Text>,
+          tabBarIcon: tabIcon('grid-outline', 'grid'),
         }}
       />
       <Tabs.Screen
         name="wallet"
         options={{
           title: 'Wallet',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>◎</Text>,
+          tabBarIcon: tabIcon('wallet-outline', 'wallet'),
         }}
       />
       <Tabs.Screen
         name="credit"
         options={{
           title: 'Credit',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>⊕</Text>,
-  }}
-/>
+          tabBarIcon: tabIcon('card-outline', 'card'),
+        }}
+      />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 20, color }}>☰</Text>,
+          tabBarIcon: tabIcon('settings-outline', 'settings'),
         }}
       />
     </Tabs>
