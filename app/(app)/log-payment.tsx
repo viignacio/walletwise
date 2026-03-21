@@ -32,6 +32,7 @@ import {
   getRecordWithPayments,
   previewCascade,
 } from '../../lib/creditRecords'
+import { formatAmountInput, parseAmountInput } from '../../lib/wallet'
 import { PaymentStatus } from '../../types/database'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ function statusColor(status: PaymentStatus): string {
   switch (status) {
     case 'paid':      return Colors.income
     case 'underpaid': return Colors.warning
+    case 'overdue':   return Colors.expense
     default:          return Colors.text.muted
   }
 }
@@ -57,6 +59,7 @@ function statusLabel(status: PaymentStatus): string {
   switch (status) {
     case 'paid':      return 'Will be marked Paid'
     case 'underpaid': return 'Partial — Underpaid'
+    case 'overdue':   return 'Partial — Still Overdue'
     default:          return status
   }
 }
@@ -112,7 +115,7 @@ export default function LogPaymentScreen() {
   )
 
   const handlePreview = async () => {
-    const amount = parseFloat(amountInput)
+    const amount = parseFloat(parseAmountInput(amountInput))
     if (isNaN(amount) || amount <= 0) {
       showAlert('Invalid amount', 'Please enter a valid payment amount.')
       return
@@ -134,7 +137,7 @@ export default function LogPaymentScreen() {
 
   const handleConfirm = async () => {
     if (!preview) return
-    const amount = parseFloat(amountInput)
+    const amount = parseFloat(parseAmountInput(amountInput))
     setConfirming(true)
     try {
       await applyPayment(id, amount, paidDate)
@@ -148,7 +151,7 @@ export default function LogPaymentScreen() {
 
   // Reset preview when amount changes
   const handleAmountChange = (text: string) => {
-    setAmountInput(text)
+    setAmountInput(formatAmountInput(text))
     setPreview(null)
   }
 

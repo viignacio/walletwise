@@ -26,6 +26,7 @@ import { getCards } from '../../lib/cards'
 import { addInstallment, getInstallments } from '../../lib/installments'
 import { createRecord } from '../../lib/creditRecords'
 import { deriveBillingInfo } from '../../lib/billing'
+import { formatAmountInput, parseAmountInput } from '../../lib/wallet'
 import { Card, Installment } from '../../types/database'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -266,7 +267,7 @@ export default function AddCreditRecordScreen() {
 
   // Estimated monthly amount preview
   const monthlyPreview = useMemo(() => {
-    const total = parseFloat(totalAmount)
+    const total = parseFloat(parseAmountInput(totalAmount))
     const months = parseInt(installmentMonths, 10)
     if (scheme === 'installment' && !isNaN(total) && !isNaN(months) && months > 0) {
       return Math.round((total / months) * 100) / 100
@@ -287,7 +288,7 @@ export default function AddCreditRecordScreen() {
       showAlert('Description required', 'Please enter a description.')
       return
     }
-    const amount = parseFloat(totalAmount)
+    const amount = parseFloat(parseAmountInput(totalAmount))
     if (isNaN(amount) || amount <= 0) {
       showAlert('Invalid amount', 'Please enter a valid amount.')
       return
@@ -421,7 +422,7 @@ export default function AddCreditRecordScreen() {
           <TextInput
             style={styles.amountInput}
             value={totalAmount}
-            onChangeText={setTotalAmount}
+            onChangeText={(text) => setTotalAmount(formatAmountInput(text))}
             placeholder="0.00"
             placeholderTextColor={Colors.text.muted}
             keyboardType="decimal-pad"

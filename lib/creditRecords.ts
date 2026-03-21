@@ -34,6 +34,8 @@ export interface CascadePreview {
   entries: CascadePreviewEntry[]
   remainder: number
   settles_record: boolean
+  /** Net deltas to expected_amount for payments affected by rollover changes, keyed by month_index */
+  expectedAdjustments: Array<{ month_index: number; delta: number }>
 }
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
@@ -282,21 +284,25 @@ export async function applyPayment(
   // Build updates
   const updates: Array<{ id: string; patch: Partial<Payment> }> = []
 
+  const adjLookup = new Map(preview.expectedAdjustments.map((a) => [a.month_index, a.delta]))
+
   for (const entry of preview.entries) {
     const payment = payments.find((p) => p.month_index === entry.month_index)
     if (!payment) continue
+    const adj = adjLookup.get(entry.month_index)
     updates.push({
       id: payment.id,
       patch: {
         actual_amount: entry.applied_amount,
         status: entry.resulting_status,
         paid_date: entry.resulting_status === 'paid' ? today : null,
+        ...(adj !== undefined ? { expected_amount: payment.expected_amount + adj } : {}),
         updated_at: new Date().toISOString(),
       },
     })
   }
 
-  // If settling, mark remaining upcoming payments as settled
+  // If settling, mark remaining upcoming/underpaid payments as settled
   if (preview.settles_record) {
     const touchedIndices = new Set(preview.entries.map((e) => e.month_index))
     for (const p of payments) {
@@ -314,22 +320,21 @@ export async function applyPayment(
     }
   }
 
-  // Apply underpayment rollover: next month after last underpaid gets its expected_amount adjusted
-  const lastUnderpaid = preview.entries.findLast((e) => e.resulting_status === 'underpaid')
-  if (lastUnderpaid) {
-    const shortfall =
-      lastUnderpaid.expected_amount - lastUnderpaid.applied_amount
-    const nextIdx = lastUnderpaid.month_index + 1
-    const nextPayment = payments.find((p) => p.month_index === nextIdx)
-    if (nextPayment) {
-      // Add rollover to the next payment's expected_amount
-      updates.push({
-        id: nextPayment.id,
-        patch: {
-          expected_amount: nextPayment.expected_amount + shortfall,
-          updated_at: new Date().toISOString(),
-        },
-      })
+  // Apply expected_amount adjustments for months not touched in entries
+  // (e.g. rollover reversal on a future month, or new rollover added to next month)
+  for (const { month_index, delta } of preview.expectedAdjustments) {
+    const inEntries = preview.entries.some((e) => e.month_index === month_index)
+    if (!inEntries) {
+      const payment = payments.find((p) => p.month_index === month_index)
+      if (payment) {
+        updates.push({
+          id: payment.id,
+          patch: {
+            expected_amount: payment.expected_amount + delta,
+            updated_at: new Date().toISOString(),
+          },
+        })
+      }
     }
   }
 
@@ -350,43 +355,81 @@ export async function applyPayment(
 }
 
 function computeCascade(payments: Payment[], receivedAmount: number): CascadePreview {
+  // Include overdue: they have a rollover already written to the next month by markOverduePayments
   const unpaid = payments
-    .filter((p) => p.status === 'upcoming' || p.status === 'underpaid')
+    .filter((p) => p.status === 'upcoming' || p.status === 'underpaid' || p.status === 'overdue')
     .sort((a, b) => a.month_index - b.month_index)
 
   const entries: CascadePreviewEntry[] = []
   let remainder = receivedAmount
 
+  // Effective expected amounts per month — adjusted forward as overdue rollovers are reversed
+  const effExp = new Map(unpaid.map((p) => [p.month_index, p.expected_amount]))
+  // Net DB deltas to expected_amount (positive = increase, negative = decrease)
+  const adjMap = new Map<number, number>()
+
+  const adjust = (idx: number, delta: number) => {
+    adjMap.set(idx, (adjMap.get(idx) ?? 0) + delta)
+    if (effExp.has(idx)) effExp.set(idx, effExp.get(idx)! + delta)
+  }
+
   for (const p of unpaid) {
     if (remainder <= 0) break
-    if (remainder >= p.expected_amount) {
+
+    const exp = effExp.get(p.month_index) ?? p.expected_amount
+    const alreadyPaid = p.actual_amount ?? 0
+    const stillOwed = exp - alreadyPaid
+
+    if (stillOwed <= 0) continue
+
+    if (remainder >= stillOwed) {
       entries.push({
         month_index: p.month_index,
         due_date: p.due_date,
-        expected_amount: p.expected_amount,
-        applied_amount: p.expected_amount,
+        expected_amount: exp,
+        applied_amount: exp, // cumulative actual_amount
         resulting_status: 'paid',
       })
-      remainder -= p.expected_amount
+      remainder -= stillOwed
+
+      // Overdue payments had their shortfall rolled to the next month by markOverduePayments.
+      // Now that they're paid, reverse that rollover.
+      if (p.status === 'overdue') {
+        adjust(p.month_index + 1, -stillOwed)
+      }
     } else {
+      const newTotal = alreadyPaid + remainder
       entries.push({
         month_index: p.month_index,
         due_date: p.due_date,
-        expected_amount: p.expected_amount,
-        applied_amount: remainder,
-        resulting_status: 'underpaid',
+        expected_amount: exp,
+        applied_amount: newTotal,
+        // Keep 'overdue' status for overdue payments; partial payments don't clear the overdue flag
+        resulting_status: p.status === 'overdue' ? 'overdue' : 'underpaid',
       })
+
+      // For overdue payments: the rollover in the next month decreases by what we just paid
+      // (shortfall was rolled when going overdue; we've now reduced it by `remainder`)
+      if (p.status === 'overdue') {
+        adjust(p.month_index + 1, -remainder)
+      }
+      // underpaid/upcoming going partial: no rollover yet — deferred until due date passes
+
       remainder = 0
     }
   }
 
+  const expectedAdjustments = Array.from(adjMap.entries())
+    .filter(([, delta]) => delta !== 0)
+    .map(([month_index, delta]) => ({ month_index, delta }))
+
   // Record settles if all payments are now paid (no remaining unpaid after cascade)
   const touchedPaid = entries.filter((e) => e.resulting_status === 'paid').map((e) => e.month_index)
-  const touchedUnderpaid = entries.filter((e) => e.resulting_status === 'underpaid').length > 0
-  const remainingUnpaid = unpaid.filter((p) => !touchedPaid.includes(p.month_index) && !touchedUnderpaid)
-  const settles_record = !touchedUnderpaid && remainingUnpaid.length === 0 && remainder === 0
+  const touchedUnresolved = entries.some((e) => e.resulting_status === 'underpaid' || e.resulting_status === 'overdue')
+  const remainingUnpaid = unpaid.filter((p) => !touchedPaid.includes(p.month_index) && !touchedUnresolved)
+  const settles_record = !touchedUnresolved && remainingUnpaid.length === 0 && remainder === 0
 
-  return { entries, remainder, settles_record }
+  return { entries, remainder, settles_record, expectedAdjustments }
 }
 
 // ─── Overdue transitions ──────────────────────────────────────────────────────
@@ -401,15 +444,43 @@ export async function markOverduePayments(): Promise<void> {
     const today = new Date()
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
-    // 1. Mark upcoming payments past their due date as overdue
-    const { error: pe } = await supabase
+    // 1. Find all upcoming/underpaid payments past their due date
+    //    (overdue ones are already handled — selecting them again would double-apply the rollover)
+    const { data: pastDue, error: pe } = await supabase
       .from('payments')
-      .update({ status: 'overdue', updated_at: new Date().toISOString() })
-      .eq('status', 'upcoming')
+      .select('id, lending_record_id, month_index, expected_amount, actual_amount')
+      .in('status', ['upcoming', 'underpaid'])
       .lt('due_date', todayStr)
     if (pe) throw pe
 
-    // 2. Mark active lending_records overdue if they have any overdue payment
+    // 2. For each: mark overdue and roll the remaining shortfall into the next month
+    for (const p of pastDue ?? []) {
+      await supabase
+        .from('payments')
+        .update({ status: 'overdue', updated_at: new Date().toISOString() })
+        .eq('id', p.id)
+
+      const shortfall = p.expected_amount - (p.actual_amount ?? 0)
+      if (shortfall > 0) {
+        const { data: next } = await supabase
+          .from('payments')
+          .select('id, expected_amount')
+          .eq('lending_record_id', p.lending_record_id)
+          .eq('month_index', p.month_index + 1)
+          .maybeSingle()
+        if (next) {
+          await supabase
+            .from('payments')
+            .update({
+              expected_amount: next.expected_amount + shortfall,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', next.id)
+        }
+      }
+    }
+
+    // 3. Mark active lending_records overdue if they have any overdue payment
     const { data: overduePayments, error: qe } = await supabase
       .from('payments')
       .select('lending_record_id')

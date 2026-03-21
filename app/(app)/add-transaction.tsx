@@ -1,32 +1,42 @@
 import { useState } from 'react'
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { Text, useAlertModal } from '../../components/ui'
-import { useRouter } from 'expo-router'
+import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout } from '../../constants'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, suggestCategory } from '../../constants/categories'
-import { addTransaction, formatAmount, isBalanceBelowThreshold } from '../../lib/wallet'
+import { addTransaction, formatAmount, formatBalance, formatAmountInput, parseAmountInput, isBalanceBelowThreshold } from '../../lib/wallet'
 import { getProfile } from '../../lib/profile'
-import { sendHouseholdPush, sendAllHouseholdPush } from '../../lib/notifications'
+import { sendHouseholdPush, sendThrottledLowBalancePush } from '../../lib/notifications'
 import { useToast } from '../../contexts/ToastContext'
 import { TransactionType } from '../../types/database'
 import * as Crypto from 'expo-crypto'
 
-function today(): string {
-  return new Date().toISOString().split('T')[0]
+function defaultDate(paramYear?: string, paramMonth?: string): string {
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
+
+  const y = paramYear ? Number(paramYear) : currentYear
+  const m = paramMonth ? Number(paramMonth) : currentMonth
+
+  // Current month → today's date; past month → 1st of that month
+  if (y === currentYear && m === currentMonth) {
+    return now.toISOString().split('T')[0]
+  }
+  return `${y}-${String(m).padStart(2, '0')}-01`
 }
 
 export default function AddTransactionScreen() {
   const router = useRouter()
+  const { year: paramYear, month: paramMonth } = useLocalSearchParams<{ year?: string; month?: string }>()
   const insets = useSafeAreaInsets()
   const { showToast } = useToast()
 
@@ -34,7 +44,7 @@ export default function AddTransactionScreen() {
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState('')
   const [description, setDescription] = useState('')
-  const [date, setDate] = useState(today())
+  const [date, setDate] = useState(() => defaultDate(paramYear, paramMonth))
   const [notes, setNotes] = useState('')
   const [isRecurring, setIsRecurring] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -72,7 +82,8 @@ export default function AddTransactionScreen() {
   }
 
   const handleSave = async () => {
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    const rawAmount = parseAmountInput(amount)
+    if (!rawAmount || isNaN(Number(rawAmount)) || Number(rawAmount) <= 0) {
       showAlert('Invalid amount', 'Please enter a valid amount greater than 0.')
       return
     }
@@ -89,7 +100,7 @@ export default function AddTransactionScreen() {
     try {
       const profile = await getProfile()
 
-      const amountNum = parseFloat(parseFloat(amount).toFixed(2))
+      const amountNum = parseFloat(parseFloat(rawAmount).toFixed(2))
       const recurringGroupId = isRecurring ? Crypto.randomUUID() : undefined
 
       await addTransaction({
@@ -130,7 +141,7 @@ export default function AddTransactionScreen() {
 
       // Compute new balance for notification messages
       const { balance } = await isBalanceBelowThreshold(profile.household_id)
-      const balanceStr = formatAmount(balance)
+      const balanceStr = formatBalance(balance)
       const amountStr = formatAmount(amountNum)
       const desc = description.trim()
 
@@ -152,7 +163,7 @@ export default function AddTransactionScreen() {
       if (type === 'expense') {
         const { below } = await isBalanceBelowThreshold(profile.household_id)
         if (below) {
-          sendAllHouseholdPush(
+          sendThrottledLowBalancePush(
             profile.household_id,
             `Household balance is running low. Current balance: ${balanceStr}`
           ).catch(() => {})
@@ -169,14 +180,13 @@ export default function AddTransactionScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
+    <View style={styles.root}>
+      <KeyboardAwareScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        bottomOffset={62}
+        extraKeyboardSpace={16}
       >
         {/* Type selector */}
         <View style={styles.typeRow}>
@@ -215,7 +225,7 @@ export default function AddTransactionScreen() {
           <TextInput
             style={styles.amountInput}
             value={amount}
-            onChangeText={setAmount}
+            onChangeText={(text) => setAmount(formatAmountInput(text))}
             placeholder="0.00"
             placeholderTextColor={Colors.text.muted}
             keyboardType="decimal-pad"
@@ -307,9 +317,9 @@ export default function AddTransactionScreen() {
         >
           <Text style={styles.saveBtnLabel}>{saving ? 'Saving…' : 'Save Transaction'}</Text>
         </Pressable>
-      </ScrollView>
+      </KeyboardAwareScrollView>
       {alertModal}
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 

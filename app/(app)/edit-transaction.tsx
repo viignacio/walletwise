@@ -21,11 +21,14 @@ import {
   updateTransaction,
   deleteTransaction,
   formatAmount,
+  formatAmountInput,
+  parseAmountInput,
+  formatBalance,
   isBalanceBelowThreshold,
 } from '../../lib/wallet'
 import { deleteFutureRecurrences } from '../../lib/recurring'
 import { getProfile } from '../../lib/profile'
-import { sendHouseholdPush, sendAllHouseholdPush } from '../../lib/notifications'
+import { sendHouseholdPush, sendThrottledLowBalancePush } from '../../lib/notifications'
 import { useToast } from '../../contexts/ToastContext'
 import { Transaction, TransactionType } from '../../types/database'
 
@@ -67,7 +70,7 @@ export default function EditTransactionScreen() {
         const tx = data as Transaction
         setOriginal(tx)
         setType(tx.type)
-        setAmount(String(tx.amount))
+        setAmount(formatAmountInput(String(tx.amount)))
         setCategory(tx.category)
         setDescription(tx.description)
         setDate(tx.date)
@@ -86,7 +89,8 @@ export default function EditTransactionScreen() {
   }
 
   const handleSave = async () => {
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    const rawAmount = parseAmountInput(amount)
+    if (!rawAmount || isNaN(Number(rawAmount)) || Number(rawAmount) <= 0) {
       showAlert('Invalid amount', 'Please enter a valid amount greater than 0.')
       return
     }
@@ -104,7 +108,7 @@ export default function EditTransactionScreen() {
     try {
       const profile = await getProfile()
 
-      const amountNum = parseFloat(parseFloat(amount).toFixed(2))
+      const amountNum = parseFloat(parseFloat(rawAmount).toFixed(2))
       await updateTransaction(id, {
         type,
         amount: amountNum,
@@ -115,7 +119,7 @@ export default function EditTransactionScreen() {
       })
 
       const { balance } = await isBalanceBelowThreshold(profile.household_id)
-      const balanceStr = formatAmount(balance)
+      const balanceStr = formatBalance(balance)
       const oldAmountStr = formatAmount(Number(original.amount))
       const newAmountStr = formatAmount(amountNum)
       const desc = description.trim()
@@ -137,7 +141,7 @@ export default function EditTransactionScreen() {
       if (type === 'expense') {
         const { below } = await isBalanceBelowThreshold(profile.household_id)
         if (below) {
-          sendAllHouseholdPush(
+          sendThrottledLowBalancePush(
             profile.household_id,
             `Household balance is running low. Current balance: ${balanceStr}`
           ).catch(() => {})
@@ -175,7 +179,7 @@ export default function EditTransactionScreen() {
       await deleteTransaction(id)
 
       const { balance } = await isBalanceBelowThreshold(profile.household_id)
-      const balanceStr = formatAmount(balance)
+      const balanceStr = formatBalance(balance)
       const amountStr = formatAmount(Number(original.amount))
       const desc = original.description
 
@@ -263,7 +267,7 @@ export default function EditTransactionScreen() {
           <TextInput
             style={styles.amountInput}
             value={amount}
-            onChangeText={setAmount}
+            onChangeText={(text) => setAmount(formatAmountInput(text))}
             placeholder="0.00"
             placeholderTextColor={Colors.text.muted}
             keyboardType="decimal-pad"

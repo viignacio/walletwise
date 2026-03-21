@@ -15,6 +15,7 @@ import {
   IBMPlexMono_400Regular,
   IBMPlexMono_600SemiBold,
 } from '@expo-google-fonts/ibm-plex-mono'
+import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { Colors } from '../constants/colors'
 import { activatePendingTransactions } from '../lib/recurring'
 
@@ -85,9 +86,9 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <KeyboardProvider>
       <StatusBar style="dark" />
       <Slot />
-    </>
+    </KeyboardProvider>
   )
 }

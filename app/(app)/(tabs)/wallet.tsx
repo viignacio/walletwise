@@ -86,8 +86,8 @@ function BalanceSummaryCard({ balance }: { balance: MonthlyBalance }) {
       <Pressable onPress={toggle} style={styles.balanceClosingRow} hitSlop={8}>
         <Text style={styles.balanceLabelLarge}>Closing Balance</Text>
         <View style={styles.balanceClosingRight}>
-          <Text style={[styles.balanceAmountLarge, { color: Colors.text.primary }]}>
-            {formatAmount(balance.closingBalance)}
+          <Text style={[styles.balanceAmountLarge, { color: balance.closingBalance < 0 ? Colors.expense : Colors.text.primary }]}>
+            {balance.closingBalance < 0 ? `-${formatAmount(balance.closingBalance)}` : formatAmount(balance.closingBalance)}
           </Text>
           <Animated.View style={chevronStyle}>
             <Ionicons name="chevron-down" size={16} color={Colors.text.muted} />
@@ -129,7 +129,11 @@ function BalanceRow({
     <View style={styles.balanceRow}>
       <Text style={[styles.balanceLabel, large && styles.balanceLabelLarge]}>{label}</Text>
       <Text style={[styles.balanceAmount, large && styles.balanceAmountLarge, { color }]}>
-        {formatAmount(amount)}
+        {colored
+          ? amount >= 0
+            ? `+${formatAmount(amount)}`
+            : `-${formatAmount(amount)}`
+          : formatAmount(amount)}
       </Text>
     </View>
   )
@@ -252,7 +256,7 @@ function YTDTable({
               { flex: 1.5, textAlign: 'right', color: row.balance < 0 ? Colors.expense : Colors.text.primary, fontFamily: FontFamily.semiBold, fontWeight: FontWeight.semiBold },
             ]}
           >
-            {formatAmount(row.balance)}
+            {row.balance < 0 ? `-${formatAmount(row.balance)}` : formatAmount(row.balance)}
           </Text>
         </Pressable>
       ))}
@@ -384,7 +388,10 @@ export default function WalletScreen() {
     setViewMode('monthly')
   }, [])
 
-  const openAddTransaction = useCallback(() => router.push('/(app)/add-transaction'), [router])
+  const openAddTransaction = useCallback(
+    () => router.push({ pathname: '/(app)/add-transaction', params: { year, month } }),
+    [router, year, month]
+  )
   const openEditTransaction = useCallback(
     (id: string) => router.push({ pathname: '/(app)/edit-transaction', params: { id } }),
     [router]

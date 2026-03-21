@@ -1,6 +1,7 @@
 import * as Device from 'expo-device'
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from './supabase'
 
 // Expo Go does not support expo-notifications in SDK 53+.
@@ -15,7 +16,6 @@ const notifs = () => require('expo-notifications') as typeof import('expo-notifi
 if (!IS_EXPO_GO) {
   notifs().setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
       shouldShowBanner: true,
       shouldShowList: true,
       shouldPlaySound: false,
@@ -53,9 +53,11 @@ export async function registerPushToken(userId: string): Promise<void> {
 
   try {
     const { data: token } = await N.getExpoPushTokenAsync({ projectId })
-    await supabase
+    const { error } = await supabase
       .from('push_tokens')
       .upsert({ user_id: userId, token }, { onConflict: 'user_id,token' })
+    if (error) console.warn('Push token DB upsert failed:', error.message)
+    else console.log('Push token registered:', token)
   } catch (e) {
     console.warn('Push token registration failed:', e)
   }
@@ -65,6 +67,7 @@ export async function registerPushToken(userId: string): Promise<void> {
 
 interface PushMessage {
   to: string
+  title: string
   body: string
   sound?: 'default'
 }
@@ -72,7 +75,7 @@ interface PushMessage {
 async function sendExpoPush(messages: PushMessage[]): Promise<void> {
   if (!messages.length) return
   try {
-    await fetch('https://exp.host/--/api/v2/push/send', {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -81,6 +84,14 @@ async function sendExpoPush(messages: PushMessage[]): Promise<void> {
       },
       body: JSON.stringify(messages),
     })
+    const json = await res.json()
+    // Log any per-ticket errors (e.g. DeviceNotRegistered for stale tokens)
+    if (json?.data) {
+      const errors = (json.data as Array<{ status: string; message?: string }>).filter(
+        (t) => t.status === 'error'
+      )
+      if (errors.length) console.warn('Push ticket errors:', errors)
+    }
   } catch (e) {
     console.warn('Push delivery failed:', e)
   }
@@ -92,23 +103,26 @@ export async function sendHouseholdPush(
   excludeUserId: string,
   body: string
 ): Promise<void> {
-  const { data: members } = await supabase
+  const { data: members, error: membersErr } = await supabase
     .from('profiles')
     .select('id')
     .eq('household_id', householdId)
     .neq('id', excludeUserId)
 
-  if (!members?.length) return
+  if (membersErr) { console.warn('Push: failed to fetch members:', membersErr.message); return }
+  if (!members?.length) { console.log('Push: no other household members found'); return }
 
   const memberIds = members.map((m) => m.id)
-  const { data: tokens } = await supabase
+  const { data: tokens, error: tokensErr } = await supabase
     .from('push_tokens')
     .select('token')
     .in('user_id', memberIds)
 
-  if (!tokens?.length) return
+  if (tokensErr) { console.warn('Push: failed to fetch tokens:', tokensErr.message); return }
+  if (!tokens?.length) { console.warn('Push: no push tokens found for members', memberIds); return }
 
-  await sendExpoPush(tokens.map(({ token }) => ({ to: token, body, sound: 'default' })))
+  console.log(`Push: sending to ${tokens.length} token(s)`)
+  await sendExpoPush(tokens.map(({ token }) => ({ to: token, title: 'WalletWise', body, sound: 'default' })))
 }
 
 /** Send a push to ALL household members (e.g. low balance alert). */
@@ -131,5 +145,28 @@ export async function sendAllHouseholdPush(
 
   if (!tokens?.length) return
 
-  await sendExpoPush(tokens.map(({ token }) => ({ to: token, body, sound: 'default' })))
+  await sendExpoPush(tokens.map(({ token }) => ({ to: token, title: 'WalletWise', body, sound: 'default' })))
+}
+
+// ── Throttled low balance push ──────────────────────────────
+
+const LOW_BALANCE_THROTTLE_KEY = 'low_balance_last_sent'
+const LOW_BALANCE_COOLDOWN_MS = 12 * 60 * 60 * 1000 // 12 hours
+
+/** Send low balance push at most once per 12 hours. */
+export async function sendThrottledLowBalancePush(
+  householdId: string,
+  body: string
+): Promise<void> {
+  try {
+    const lastSent = await AsyncStorage.getItem(LOW_BALANCE_THROTTLE_KEY)
+    if (lastSent && Date.now() - Number(lastSent) < LOW_BALANCE_COOLDOWN_MS) {
+      console.log('Low balance push throttled — sent less than 12h ago')
+      return
+    }
+    await sendAllHouseholdPush(householdId, body)
+    await AsyncStorage.setItem(LOW_BALANCE_THROTTLE_KEY, String(Date.now()))
+  } catch (e) {
+    console.warn('Throttled low balance push failed:', e)
+  }
 }

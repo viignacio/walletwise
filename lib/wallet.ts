@@ -284,6 +284,24 @@ export async function isBalanceBelowThreshold(
 
 // ── Formatting ───────────────────────────────────────────────
 
+/** Format a string for display in amount inputs with comma separators. */
+export function formatAmountInput(text: string): string {
+  // Strip everything except digits and a single decimal point
+  const cleaned = text.replace(/[^0-9.]/g, '')
+  const parts = cleaned.split('.')
+  // Only keep first decimal point
+  const intPart = parts[0] || ''
+  const decPart = parts.length > 1 ? `.${parts[1].slice(0, 2)}` : ''
+  // Add comma separators to integer part
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return withCommas + decPart
+}
+
+/** Strip commas from a formatted amount string to get a raw number string. */
+export function parseAmountInput(text: string): string {
+  return text.replace(/,/g, '')
+}
+
 export function formatAmount(amount: number): string {
   const abs = Math.abs(amount)
   const formatted = abs.toLocaleString('en-PH', {
@@ -291,4 +309,14 @@ export function formatAmount(amount: number): string {
     maximumFractionDigits: 2,
   })
   return `₱${formatted}`
+}
+
+/** Format a balance preserving the negative sign (e.g. -₱1,200.00). */
+export function formatBalance(amount: number): string {
+  const abs = Math.abs(amount)
+  const formatted = abs.toLocaleString('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+  return amount < 0 ? `-₱${formatted}` : `₱${formatted}`
 }

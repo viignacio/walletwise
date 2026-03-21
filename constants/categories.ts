@@ -7,10 +7,13 @@ export const EXPENSE_CATEGORIES = [
   'Food & Dining',
   'Groceries',
   'Utilities',
-  'Transportation',
+  'Travel',
   'Health',
   'Entertainment',
   'Bills',
+  'Investments',
+  'Pets',
+  'Household',
   'Others',
 ] as const
 
@@ -40,8 +43,8 @@ const EXPENSE_RULES: Array<{ keywords: string[]; category: ExpenseCategoryValue 
   },
   {
     keywords: ['gasoline', 'petrol', 'fuel', 'uber', 'grab ride', 'jeep', 'jeepney', 'tricycle', 'mrt', 'lrt',
-      'bus', 'taxi', 'angkas', 'fare', 'toll', 'parking', 'transport', 'commute'],
-    category: 'Transportation',
+      'bus', 'taxi', 'angkas', 'fare', 'toll', 'parking', 'transport', 'commute', 'flight', 'cebpac'],
+    category: 'Travel',
   },
   {
     keywords: ['medicine', 'pharmacy', 'watsons', 'rose pharmacy', 'mercury drug', 'doctor', 'hospital',
@@ -57,6 +60,23 @@ const EXPENSE_RULES: Array<{ keywords: string[]; category: ExpenseCategoryValue 
     keywords: ['bill', 'bills', 'payment', 'dues', 'insurance', 'premium', 'loan', 'amortization',
       'mortgage', 'rent', 'condo', 'hoa', 'tuition', 'school', 'credit card'],
     category: 'Bills',
+  },
+  {
+    keywords: ['investment', 'invest', 'real estate', 'property', 'lot', 'condo unit', 'house and lot',
+      'savings', 'save', 'stock', 'stocks', 'mutual fund', 'uitf', 'bond', 'crypto', 'bitcoin',
+      'pagibig mp2', 'mp2', 'pag-ibig', 'retirement', 'fund', 'portfolio', 'dividend'],
+    category: 'Investments',
+  },
+  {
+    keywords: ['pet', 'pet food', 'dog food', 'cat food', 'pet toys', 'pet treats', 'vet', 'veterinary',
+      'grooming', 'kibble', 'litter', 'cat litter', 'dog', 'cat', 'puppy', 'kitten'],
+    category: 'Pets',
+  },
+  {
+    keywords: ['appliance', 'repair', 'repairs', 'maintenance', 'plumber', 'plumbing', 'electrician',
+      'aircon', 'cleaning', 'furniture', 'home', 'household', 'hardware', 'paint', 'renovation',
+      'handyman', 'pest control', 'curtain', 'bedding', 'linens'],
+    category: 'Household',
   },
 ]
 

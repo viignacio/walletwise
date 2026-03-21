@@ -23,6 +23,7 @@ import {
   TextStyles,
 } from '../../constants'
 import { addCard, deleteCard, getCards, updateCard } from '../../lib/cards'
+import { formatAmountInput, parseAmountInput } from '../../lib/wallet'
 
 const CARD_COLORS = [
   '#2563EB', // Blue (primary)
@@ -58,7 +59,7 @@ export default function AddCardScreen() {
         const card = cards.find((c) => c.id === id)
         if (!card) return
         setName(card.name)
-        setCreditLimit(card.credit_limit > 0 ? String(card.credit_limit) : '')
+        setCreditLimit(card.credit_limit > 0 ? formatAmountInput(String(card.credit_limit)) : '')
         setCutoffDay(String(card.billing_cutoff_day))
         setDueDateDay(String(card.due_date_day))
         setColor(card.color)
@@ -85,7 +86,7 @@ export default function AddCardScreen() {
     const dueDay = validateDay(dueDateDay, 'Payment due day')
     if (dueDay === null) return
 
-    const limit = parseFloat(creditLimit) || 0
+    const limit = parseFloat(parseAmountInput(creditLimit)) || 0
 
     setSaving(true)
     try {
@@ -166,7 +167,7 @@ export default function AddCardScreen() {
           <TextInput
             style={styles.amountInput}
             value={creditLimit}
-            onChangeText={setCreditLimit}
+            onChangeText={(text) => setCreditLimit(formatAmountInput(text))}
             placeholder="0.00"
             placeholderTextColor={Colors.text.muted}
             keyboardType="decimal-pad"
