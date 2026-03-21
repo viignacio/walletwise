@@ -325,6 +325,11 @@ export default function SettingsScreen() {
   }
 
   const appVersion = Constants.expoConfig?.version ?? '0.0.0'
+  const updateId = Updates.updateId
+  const updateDate = Updates.createdAt
+  const versionDisplay = updateId
+    ? `v${appVersion} · update ${updateId.slice(0, 8)} (${updateDate?.toLocaleDateString()})`
+    : `v${appVersion}`
 
   const LAST_UPDATE_CHECK_KEY = 'walletwise_last_update_check'
   const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000 // 24 hours
@@ -341,14 +346,14 @@ export default function SettingsScreen() {
       if (result.isAvailable) {
         setUpdateAvailable(true)
       } else if (!silent) {
-        showAlert('Up to date', `You're on the latest version (v${appVersion}).`)
+        showAlert('Up to date', `You're on the latest version (${versionDisplay}).`)
       }
     } catch {
       if (!silent) showAlert('Error', 'Could not check for updates. Please try again later.')
     } finally {
       setUpdateChecking(false)
     }
-  }, [appVersion, showAlert])
+  }, [versionDisplay, showAlert])
 
   useEffect(() => {
     (async () => {
@@ -609,7 +614,7 @@ export default function SettingsScreen() {
               <Text style={[styles.rowLabel, { flex: 0, color: Colors.income }]}>
                 {updateDownloading ? 'Downloading...' : 'Download & Restart'}
               </Text>
-              <Text style={styles.rowSublabel}>WalletWise {appVersion}</Text>
+              <Text style={styles.rowSublabel}>WalletWise {versionDisplay}</Text>
             </View>
             <View style={styles.updateBadge}>
               <Text style={styles.updateBadgeText}>New</Text>
@@ -628,7 +633,7 @@ export default function SettingsScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowLabel, { flex: 0 }]}>Check for Updates</Text>
-              <Text style={styles.rowSublabel}>WalletWise {appVersion}</Text>
+              <Text style={styles.rowSublabel}>WalletWise {versionDisplay}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={Colors.text.muted} />
           </Pressable>
