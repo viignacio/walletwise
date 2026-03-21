@@ -97,6 +97,8 @@ export default function LogPaymentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
 
   const [recordDescription, setRecordDescription] = useState('')
+  const [monthlyAmount, setMonthlyAmount] = useState(0)
+  const [totalOutstanding, setTotalOutstanding] = useState(0)
   const [amountInput, setAmountInput] = useState('')
   const [paidDate, setPaidDate] = useState(() => new Date().toISOString().split('T')[0])
   const [preview, setPreview] = useState<CascadePreview | null>(null)
@@ -108,7 +110,15 @@ export default function LogPaymentScreen() {
     useCallback(() => {
       let active = true
       getRecordWithPayments(id)
-        .then((r) => { if (active) setRecordDescription(r.description) })
+        .then((r) => {
+          if (!active) return
+          setRecordDescription(r.description)
+          setMonthlyAmount(r.monthly_amount)
+          const paidTotal = r.payments
+            .filter((p) => p.status === 'paid')
+            .reduce((sum, p) => sum + Number(p.actual_amount ?? 0), 0)
+          setTotalOutstanding(Number(r.total_amount) - paidTotal)
+        })
         .catch(() => {})
       return () => { active = false }
     }, [id]),
@@ -201,6 +211,34 @@ export default function LogPaymentScreen() {
             returnKeyType="done"
             inputAccessoryViewID="no-toolbar"
           />
+        </View>
+        <View style={styles.amountShortcuts}>
+          {totalOutstanding > 0 && (
+            <Pressable
+              style={({ pressed }) => [styles.shortcutBtn, styles.shortcutFull, pressed && styles.pressed]}
+              onPress={() => {
+                setAmountInput(formatAmountInput(totalOutstanding.toFixed(2)))
+                setPreview(null)
+              }}
+            >
+              <Text style={[styles.shortcutLabel, styles.shortcutFullLabel]}>
+                Full Amount — {formatAmount(totalOutstanding)}
+              </Text>
+            </Pressable>
+          )}
+          {monthlyAmount > 0 && (
+            <Pressable
+              style={({ pressed }) => [styles.shortcutBtn, styles.shortcutInstallment, pressed && styles.pressed]}
+              onPress={() => {
+                setAmountInput(formatAmountInput(monthlyAmount.toFixed(2)))
+                setPreview(null)
+              }}
+            >
+              <Text style={[styles.shortcutLabel, styles.shortcutInstallmentLabel]}>
+                Installment — {formatAmount(monthlyAmount)}
+              </Text>
+            </Pressable>
+          )}
         </View>
 
         {/* ── Date ── */}
@@ -366,6 +404,35 @@ const styles = StyleSheet.create({
     ...TextStyles.amountLg,
     color: Colors.text.primary,
     paddingVertical: 14,
+  },
+
+  // ── Amount shortcuts ──
+  amountShortcuts: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+    marginTop: Spacing[2],
+  },
+  shortcutBtn: {
+    paddingVertical: Spacing[1],
+    paddingHorizontal: Spacing[3],
+    borderRadius: Radius.full,
+  },
+  shortcutLabel: {
+    ...TextStyles.caption,
+    fontFamily: FontFamily.semiBold,
+  },
+  shortcutFull: {
+    backgroundColor: Colors.incomeLight,
+  },
+  shortcutFullLabel: {
+    color: Colors.income,
+  },
+  shortcutInstallment: {
+    backgroundColor: Colors.primaryMuted,
+  },
+  shortcutInstallmentLabel: {
+    color: Colors.primary,
   },
 
   // ── Preview button ──
