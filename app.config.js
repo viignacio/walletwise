@@ -1,10 +1,11 @@
+const { version } = require('./package.json');
 const IS_DEV = process.env.APP_VARIANT === 'development';
 
 export default {
   expo: {
     name: IS_DEV ? 'WalletWise (Dev)' : 'WalletWise',
     slug: 'walletwise',
-    version: '1.0.0',
+    version,
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
@@ -41,9 +42,7 @@ export default {
       checkAutomatically: 'ON_LOAD',
       fallbackToCacheTimeout: 0,
     },
-    runtimeVersion: {
-      policy: 'appVersion',
-    },
+    runtimeVersion: version.split('.')[0] + '.0.0',
     plugins: [
       ...(IS_DEV ? ['expo-dev-client'] : []),
       'expo-router',
