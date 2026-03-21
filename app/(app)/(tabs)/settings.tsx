@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { View, Pressable, StyleSheet, ScrollView, TextInput, Modal, KeyboardAvoidingView, Platform, Linking, Share, ActivityIndicator } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { ConfirmModal, Text, useAlertModal } from '../../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -9,6 +10,8 @@ import { formatAmount } from '../../../lib/wallet'
 import { getAllReminderSettings, setReminderSetting, ReminderSetting } from '../../../lib/notificationSettings'
 import { scheduleReminders } from '../../../lib/reminderScheduler'
 import * as Notifications from 'expo-notifications'
+import * as Updates from 'expo-updates'
+import Constants from 'expo-constants'
 
 type RowProps = {
   icon: React.ComponentProps<typeof Ionicons>['name']
@@ -85,6 +88,11 @@ export default function SettingsScreen() {
   const [joinModalOpen, setJoinModalOpen] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const [joinLoading, setJoinLoading] = useState(false)
+
+  // App updates
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateDownloading, setUpdateDownloading] = useState(false)
 
   const insets = useSafeAreaInsets()
   const { showAlert, alertModal } = useAlertModal()
@@ -316,6 +324,56 @@ export default function SettingsScreen() {
     setNotifModalOpen(true)
   }
 
+  const appVersion = Constants.expoConfig?.version ?? '0.0.0'
+
+  const LAST_UPDATE_CHECK_KEY = 'walletwise_last_update_check'
+  const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000 // 24 hours
+
+  const checkForUpdate = useCallback(async (silent = false) => {
+    if (__DEV__) {
+      if (!silent) showAlert('Dev Mode', 'Updates are not available in development.')
+      return
+    }
+    setUpdateChecking(true)
+    try {
+      const result = await Updates.checkForUpdateAsync()
+      await AsyncStorage.setItem(LAST_UPDATE_CHECK_KEY, Date.now().toString())
+      if (result.isAvailable) {
+        setUpdateAvailable(true)
+      } else if (!silent) {
+        showAlert('Up to date', `You're on the latest version (v${appVersion}).`)
+      }
+    } catch {
+      if (!silent) showAlert('Error', 'Could not check for updates. Please try again later.')
+    } finally {
+      setUpdateChecking(false)
+    }
+  }, [appVersion, showAlert])
+
+  useEffect(() => {
+    (async () => {
+      const last = await AsyncStorage.getItem(LAST_UPDATE_CHECK_KEY)
+      const elapsed = last ? Date.now() - parseInt(last, 10) : Infinity
+      if (elapsed >= UPDATE_CHECK_INTERVAL) {
+        checkForUpdate(true)
+      }
+    })()
+  }, [checkForUpdate])
+
+  const downloadAndApplyUpdate = async () => {
+    setUpdateDownloading(true)
+    try {
+      await Updates.fetchUpdateAsync()
+      showAlert('Update ready', 'The app will now restart to apply the update.', async () => {
+        await Updates.reloadAsync()
+      })
+    } catch {
+      showAlert('Error', 'Failed to download the update. Please try again.')
+    } finally {
+      setUpdateDownloading(false)
+    }
+  }
+
   const handleSignOut = () => setConfirmSignOut(true)
 
   return (
@@ -531,6 +589,50 @@ export default function SettingsScreen() {
           onPress={handleSignOut}
           destructive
         />
+      </View>
+
+      {/* App Version & Updates */}
+      <SectionHeader title="About" />
+      <View style={styles.section}>
+        {updateAvailable ? (
+          <Pressable
+            style={({ pressed }) => [styles.row, pressed && styles.pressed, updateDownloading && styles.rowDisabled]}
+            onPress={downloadAndApplyUpdate}
+            disabled={updateDownloading}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: `${Colors.income}14` }]}>
+              {updateDownloading
+                ? <ActivityIndicator color={Colors.income} size="small" />
+                : <Ionicons name="download-outline" size={18} color={Colors.income} />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { flex: 0, color: Colors.income }]}>
+                {updateDownloading ? 'Downloading...' : 'Download & Restart'}
+              </Text>
+              <Text style={styles.rowSublabel}>WalletWise {appVersion}</Text>
+            </View>
+            <View style={styles.updateBadge}>
+              <Text style={styles.updateBadgeText}>New</Text>
+            </View>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.row, pressed && styles.pressed, updateChecking && styles.rowDisabled]}
+            onPress={() => checkForUpdate()}
+            disabled={updateChecking}
+          >
+            <View style={styles.rowIcon}>
+              {updateChecking
+                ? <ActivityIndicator color={Colors.primary} size="small" />
+                : <Ionicons name="refresh-outline" size={18} color={Colors.primary} />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { flex: 0 }]}>Check for Updates</Text>
+              <Text style={styles.rowSublabel}>WalletWise {appVersion}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={Colors.text.muted} />
+          </Pressable>
+        )}
       </View>
 
       {/* ── Profile modal ── */}
@@ -1063,5 +1165,21 @@ const styles = StyleSheet.create({
   permissionText: {
     ...TextStyles.label,
     fontFamily: FontFamily.semiBold,
+  },
+  // Version & updates
+  updateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing[1],
+    backgroundColor: Colors.incomeLight,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing[2],
+    paddingVertical: 2,
+  },
+  updateBadgeText: {
+    ...TextStyles.label,
+    fontFamily: FontFamily.semiBold,
+    color: Colors.income,
+    fontSize: 11,
   },
 })

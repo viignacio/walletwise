@@ -1,50 +1,22 @@
-name: EAS Build & Release
+name: Release APK
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  check:
-    name: Check for major version bump
-    runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.compare.outputs.should_build }}
-      version: ${{ steps.compare.outputs.version }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 2
-
-      - name: Compare major version with previous commit
-        id: compare
-        run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          PREVIOUS=$(git show HEAD~1:package.json | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version")
-          CURRENT_MAJOR=$(echo "$CURRENT" | cut -d. -f1)
-          PREVIOUS_MAJOR=$(echo "$PREVIOUS" | cut -d. -f1)
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$CURRENT_MAJOR" != "$PREVIOUS_MAJOR" ]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "version=$CURRENT" >> "$GITHUB_OUTPUT"
-
-  build:
-    name: Build & Release APK
-    needs: check
-    if: needs.check.outputs.should_build == 'true'
+  release:
+    name: Download & Release APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Get version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -61,22 +33,19 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build preview APK
-        run: eas build --profile preview --platform android --non-interactive --wait
-
-      - name: Download APK artifact
+      - name: Download latest preview APK from EAS
         run: |
           eas build:list --platform android --buildProfile preview --limit 1 --json --non-interactive \
             | node -e "
               const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
               console.log(data[0].artifacts.buildUrl);
             " \
-            | xargs curl -L -o walletwise-${{ needs.check.outputs.version }}.apk
+            | xargs curl -L -o walletwise-${{ steps.version.outputs.version }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.check.outputs.version }}
-          name: WalletWise v${{ needs.check.outputs.version }}
-          files: walletwise-${{ needs.check.outputs.version }}.apk
+          tag_name: v${{ steps.version.outputs.version }}
+          name: WalletWise v${{ steps.version.outputs.version }}
+          files: walletwise-${{ steps.version.outputs.version }}.apk
           generate_release_notes: true

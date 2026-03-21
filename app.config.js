@@ -39,7 +39,7 @@ export default {
     updates: {
       url: 'https://u.expo.dev/02124cb6-bd4d-42e7-b8ba-b88f7f635f94',
       enabled: !IS_DEV,
-      checkAutomatically: 'ON_LOAD',
+      checkAutomatically: 'NEVER',
       fallbackToCacheTimeout: 0,
     },
     runtimeVersion: version.split('.')[0] + '.0.0',
