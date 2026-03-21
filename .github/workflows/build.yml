@@ -33,14 +33,15 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Download latest preview APK from EAS
+      - name: Get latest preview build URL from EAS
+        id: eas
         run: |
-          eas build:list --platform android --buildProfile preview --limit 1 --json --non-interactive \
-            | node -e "
-              const data = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
-              console.log(data[0].artifacts.buildUrl);
-            " \
-            | xargs curl -L -o walletwise-${{ steps.version.outputs.version }}.apk
+          eas build:list --platform android --buildProfile preview --limit 1 --json --non-interactive > builds.json
+          URL=$(node -p "JSON.parse(require('fs').readFileSync('builds.json','utf8'))[0].artifacts.buildUrl")
+          echo "apk_url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Download APK
+        run: curl -L -o walletwise-${{ steps.version.outputs.version }}.apk "${{ steps.eas.outputs.apk_url }}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
