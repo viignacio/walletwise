@@ -14,7 +14,7 @@ import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { Colors, TextStyles, Spacing, Radius, Layout, Shadows } from '../../constants'
+import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontFamily } from '../../constants'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../../constants/categories'
 import { supabase } from '../../lib/supabase'
 import {
@@ -46,6 +46,9 @@ export default function EditTransactionScreen() {
   const [date, setDate] = useState('')
   const [notes, setNotes] = useState('')
   const [isRecurring, setIsRecurring] = useState(false)
+  const [baseAmount, setBaseAmount] = useState('')
+  const [percentChip, setPercentChip] = useState<'full' | 80 | 50 | 20 | 'custom'>('full')
+  const [customPct, setCustomPct] = useState('')
   const [loadingTx, setLoadingTx] = useState(true)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -70,7 +73,9 @@ export default function EditTransactionScreen() {
         const tx = data as Transaction
         setOriginal(tx)
         setType(tx.type)
-        setAmount(formatAmountInput(String(tx.amount)))
+        const loadedAmount = formatAmountInput(String(tx.amount))
+        setAmount(loadedAmount)
+        setBaseAmount(loadedAmount)
         setCategory(tx.category)
         setDescription(tx.description)
         setDate(tx.date)
@@ -204,6 +209,34 @@ export default function EditTransactionScreen() {
 
   const confirmDeleteTransaction = () => executeDelete(false)
 
+  const handleChipPress = (chip: 'full' | 80 | 50 | 20 | 'custom') => {
+    setPercentChip(chip)
+    if (chip === 'full') {
+      setAmount(baseAmount)
+    } else if (chip === 'custom') {
+      setCustomPct('')
+    } else {
+      const base = parseAmountInput(baseAmount)
+      if (base > 0) {
+        const computed = ((base * chip) / 100).toFixed(2)
+        setAmount(formatAmountInput(computed))
+      }
+    }
+  }
+
+  const handleCustomPctChange = (text: string) => {
+    const clean = text.replace(/[^0-9]/g, '').slice(0, 3)
+    const num = parseInt(clean, 10)
+    if (clean === '' || (num >= 0 && num <= 100)) {
+      setCustomPct(clean)
+      const base = parseAmountInput(baseAmount)
+      if (base > 0 && clean !== '') {
+        const computed = ((base * (num || 0)) / 100).toFixed(2)
+        setAmount(formatAmountInput(computed))
+      }
+    }
+  }
+
   if (loadingTx) {
     return (
       <View style={styles.center}>
@@ -267,13 +300,66 @@ export default function EditTransactionScreen() {
           <TextInput
             style={styles.amountInput}
             value={amount}
-            onChangeText={(text) => setAmount(formatAmountInput(text))}
+            onChangeText={(text) => {
+              const formatted = formatAmountInput(text)
+              setAmount(formatted)
+              setBaseAmount(formatted)
+              setPercentChip('full')
+              setCustomPct('')
+            }}
             placeholder="0.00"
             placeholderTextColor={Colors.text.muted}
             keyboardType="decimal-pad"
             returnKeyType="done"
           />
         </View>
+
+        {/* Percentage chips */}
+        {parseAmountInput(baseAmount) > 0 && (
+          <>
+            <View style={styles.percentChips}>
+              {(['full', 80, 50, 20, 'custom'] as const).map((chip) => {
+                const isSelected = percentChip === chip
+                const label = chip === 'full' ? 'Full' : chip === 'custom' ? 'Custom' : `${chip}%`
+                return (
+                  <Pressable
+                    key={String(chip)}
+                    style={({ pressed }) => [
+                      styles.percentChip,
+                      isSelected && (chip === 'full' ? styles.percentChipFull : styles.percentChipPct),
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => handleChipPress(chip)}
+                  >
+                    <Text
+                      style={[
+                        styles.percentChipLabel,
+                        isSelected && (chip === 'full' ? styles.percentChipFullLabel : styles.percentChipPctLabel),
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+            {percentChip === 'custom' && (
+              <View style={styles.customPctRow}>
+                <TextInput
+                  style={styles.customPctInput}
+                  value={customPct}
+                  onChangeText={handleCustomPctChange}
+                  placeholder="0"
+                  placeholderTextColor={Colors.text.muted}
+                  keyboardType="number-pad"
+                  maxLength={3}
+                  autoFocus
+                />
+                <Text style={styles.customPctSuffix}>%</Text>
+              </View>
+            )}
+          </>
+        )}
 
         {/* Description */}
         <FormLabel>Description</FormLabel>
@@ -618,5 +704,63 @@ const styles = StyleSheet.create({
   recCancelLabel: {
     ...TextStyles.labelLg,
     color: Colors.text.secondary,
+  },
+
+  // ── Percentage chips ──
+  percentChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing[2],
+    marginTop: Spacing[2],
+  },
+  percentChip: {
+    paddingVertical: Spacing[1],
+    paddingHorizontal: Spacing[3],
+    borderRadius: Radius.full,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  percentChipFull: {
+    backgroundColor: Colors.incomeLight,
+    borderColor: Colors.incomeLight,
+  },
+  percentChipPct: {
+    backgroundColor: Colors.primaryMuted,
+    borderColor: Colors.primaryMuted,
+  },
+  percentChipLabel: {
+    ...TextStyles.caption,
+    fontFamily: FontFamily.semiBold,
+    color: Colors.text.secondary,
+  },
+  percentChipFullLabel: {
+    color: Colors.income,
+  },
+  percentChipPctLabel: {
+    color: Colors.primary,
+  },
+  customPctRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: Spacing[2],
+    backgroundColor: Colors.primaryMuted,
+    borderRadius: Radius.md,
+    paddingHorizontal: Spacing[3],
+    paddingVertical: Spacing[1],
+    gap: Spacing[1],
+  },
+  customPctInput: {
+    ...TextStyles.caption,
+    fontFamily: FontFamily.semiBold,
+    color: Colors.primary,
+    minWidth: 32,
+    padding: 0,
+  },
+  customPctSuffix: {
+    ...TextStyles.caption,
+    fontFamily: FontFamily.semiBold,
+    color: Colors.primary,
   },
 })
