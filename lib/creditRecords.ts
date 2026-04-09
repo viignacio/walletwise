@@ -19,7 +19,7 @@ export interface RecordsByInstallment {
   installment_id: string
   installment_name: string
   total_owed: number
-  records: LendingRecord[]
+  records: (LendingRecord & { next_due_date?: string | null, payments_remaining?: number })[]
 }
 
 export interface CascadePreviewEntry {
@@ -44,7 +44,7 @@ export interface CascadePreview {
 export async function getRecordsByInstallment(): Promise<RecordsByInstallment[]> {
   const { data, error } = await supabase
     .from('lending_records')
-    .select('*, installments(name)')
+    .select('*, installments(name), payments(status, due_date, month_index)')
     .neq('status', 'settled')
     .order('created_at', { ascending: true })
   if (error) throw error
@@ -62,7 +62,26 @@ export async function getRecordsByInstallment(): Promise<RecordsByInstallment[]>
     }
     const entry = map.get(iid)!
     entry.total_owed += Number(row.total_amount ?? 0)
-    entry.records.push(row as LendingRecord)
+
+    let next_due_date: string | null = null
+    let payments_remaining = 0
+    
+    // @ts-ignore - payments is joined
+    const payments = row.payments as any[] | undefined
+    if (Array.isArray(payments)) {
+      const unpaidPayments = payments.filter((p) => p.status && !['paid'].includes(p.status))
+      payments_remaining = unpaidPayments.length
+      if (unpaidPayments.length > 0) {
+        unpaidPayments.sort((a, b) => a.month_index - b.month_index)
+        next_due_date = unpaidPayments[0].due_date
+      }
+    }
+
+    entry.records.push({
+      ...(row as LendingRecord),
+      next_due_date,
+      payments_remaining,
+    })
   }
   return Array.from(map.values())
 }
