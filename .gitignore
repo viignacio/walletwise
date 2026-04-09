@@ -44,3 +44,5 @@ yarn-error.*
 .agent
 docs/
 WalletWise-spec.docx
+.worktrees
+worktrees
