@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text, useAlertModal } from '../../components/ui'
+import { Text, useAlertModal, DatePickerField } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -433,13 +433,9 @@ export default function AddCreditRecordScreen() {
 
         {/* ── Transaction Date ── */}
         <FormLabel>Transaction Date</FormLabel>
-        <TextInput
-          style={styles.input}
+        <DatePickerField
           value={transactionDate}
-          onChangeText={setTransactionDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={Colors.text.muted}
-          returnKeyType="next"
+          onChange={setTransactionDate}
         />
 
         {/* ── Billing info disclosure ── */}

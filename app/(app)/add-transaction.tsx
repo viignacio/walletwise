@@ -6,7 +6,7 @@ import {
   View,
 } from 'react-native'
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
-import { Text, useAlertModal } from '../../components/ui'
+import { Text, useAlertModal, DatePickerField } from '../../components/ui'
 import { useRouter, useLocalSearchParams } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -347,14 +347,9 @@ export default function AddTransactionScreen() {
 
         {/* Date */}
         <FormLabel>Date</FormLabel>
-        <TextInput
-          style={styles.input}
+        <DatePickerField
           value={date}
-          onChangeText={setDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={Colors.text.muted}
-          keyboardType="default"
-          returnKeyType="done"
+          onChange={setDate}
         />
 
         {/* Notes */}

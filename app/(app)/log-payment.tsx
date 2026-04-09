@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { Text, useAlertModal } from '../../components/ui'
+import { Text, useAlertModal, DatePickerField } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useFocusEffect } from '@react-navigation/native'
@@ -243,13 +243,9 @@ export default function LogPaymentScreen() {
 
         {/* ── Date ── */}
         <FormLabel>Payment Date</FormLabel>
-        <TextInput
-          style={styles.input}
+        <DatePickerField
           value={paidDate}
-          onChangeText={(t) => { setPaidDate(t); setPreview(null) }}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={Colors.text.muted}
-          returnKeyType="done"
+          onChange={(t) => { setPaidDate(t); setPreview(null) }}
         />
 
         {/* ── Preview button ── */}

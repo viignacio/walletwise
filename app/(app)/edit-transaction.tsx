@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
+import { ConfirmModal, Text, useAlertModal, DatePickerField } from '../../components/ui'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -390,13 +390,9 @@ export default function EditTransactionScreen() {
 
         {/* Date */}
         <FormLabel>Date</FormLabel>
-        <TextInput
-          style={styles.input}
+        <DatePickerField
           value={date}
-          onChangeText={setDate}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={Colors.text.muted}
-          returnKeyType="done"
+          onChange={setDate}
         />
 
         {/* Notes */}
