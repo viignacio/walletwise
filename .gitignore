@@ -41,3 +41,6 @@ yarn-error.*
 /android
 
 .claude
+.agent
+docs/
+WalletWise-spec.docx
