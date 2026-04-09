@@ -139,8 +139,7 @@ export async function createRecord(input: CreateRecordInput): Promise<LendingRec
   if (!user) throw new Error('Not authenticated')
 
   // Derive billing info
-  const txDate = new Date(input.transaction_date)
-  const billing = deriveBillingInfo(txDate, input.billing_cutoff_day, input.due_date_day)
+  const billing = deriveBillingInfo(input.transaction_date, input.billing_cutoff_day, input.due_date_day)
 
   const monthly = input.payment_scheme === 'installment' && input.installment_months
     ? roundCurrency(input.total_amount / input.installment_months)
@@ -178,6 +177,7 @@ export async function createRecord(input: CreateRecordInput): Promise<LendingRec
     startPaymentMonth: input.start_payment_month,
     billingStatementMonth: billing.statementMonth, // YYYY-MM — first charge month
     dueDateDay: input.due_date_day,
+    billingCutoffDay: input.billing_cutoff_day,
   })
 
   if (payments.length > 0) {
@@ -210,8 +210,9 @@ interface ScheduleInput {
   monthlyAmount: number
   installmentMonths?: number
   startPaymentMonth: number
-  billingStatementMonth: string // YYYY-MM — this is the statement month; first due is next month
+  billingStatementMonth: string // YYYY-MM — this is the statement month
   dueDateDay: number
+  billingCutoffDay: number
 }
 
 function generatePaymentSchedule(input: ScheduleInput): Omit<Payment, 'id' | 'created_at' | 'updated_at'>[] {
@@ -222,7 +223,8 @@ function generatePaymentSchedule(input: ScheduleInput): Omit<Payment, 'id' | 'cr
   const rows: Omit<Payment, 'id' | 'created_at' | 'updated_at'>[] = []
 
   if (input.paymentScheme === 'direct') {
-    const dueDate = buildDueDate(stmtYear, stmtMonth, input.dueDateDay)
+    const baseOffset = input.dueDateDay > input.billingCutoffDay ? 0 : 1
+    const dueDate = buildDueDate(stmtYear, stmtMonth, input.dueDateDay, baseOffset)
     rows.push({
       user_id: input.userId,
       lending_record_id: input.recordId,
@@ -238,10 +240,10 @@ function generatePaymentSchedule(input: ScheduleInput): Omit<Payment, 'id' | 'cr
 
   // Installment: generate months starting from (first due month + startPaymentMonth)
   const totalMonths = input.installmentMonths ?? 1
+  const baseOffset = input.dueDateDay > input.billingCutoffDay ? 0 : 1
   for (let i = 0; i < totalMonths; i++) {
     const paymentIndex = input.startPaymentMonth + i
-    // paymentIndex 0 = first due month (month after statement), 1 = month after that, ...
-    const offsetMonths = 1 + paymentIndex // offset from statement month
+    const offsetMonths = baseOffset + paymentIndex // offset from statement month
     const dueDate = buildDueDate(stmtYear, stmtMonth, input.dueDateDay, offsetMonths)
     rows.push({
       user_id: input.userId,

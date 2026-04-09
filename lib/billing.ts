@@ -21,17 +21,29 @@ export interface BillingInfo {
 }
 
 /**
+ * Helper to parse YYYY-MM-DD string into a local Date object without timezone shifts.
+ */
+function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+/**
  * Derives billing cycle information for a credit record.
  *
- * @param transactionDate  The date the charge was made to the borrower
- * @param billingCutoffDay Card.billing_cutoff_day (1–31)
- * @param dueDateDay       Card.due_date_day (1–31)
+ * @param transactionDateInput  The date (or ISO string) the charge was made to the borrower
+ * @param billingCutoffDay      Card.billing_cutoff_day (1–31)
+ * @param dueDateDay            Card.due_date_day (1–31)
  */
 export function deriveBillingInfo(
-  transactionDate: Date,
+  transactionDateInput: Date | string,
   billingCutoffDay: number,
   dueDateDay: number,
 ): BillingInfo {
+  const transactionDate = typeof transactionDateInput === 'string'
+    ? parseLocalDate(transactionDateInput)
+    : transactionDateInput
+
   const txDay   = transactionDate.getDate()
   const txYear  = transactionDate.getFullYear()
   const txMonth = transactionDate.getMonth() // 0-indexed
@@ -47,9 +59,18 @@ export function deriveBillingInfo(
     stmtMonth = txMonth === 11 ? 0 : txMonth + 1
   }
 
-  // Step 2: due date is dueDateDay of the month AFTER the statement month
-  const dueYear  = stmtMonth === 11 ? stmtYear + 1 : stmtYear
-  const dueMonth = stmtMonth === 11 ? 0 : stmtMonth + 1 // 0-indexed
+  // Step 2: determine due month
+  // If dueDateDay > billingCutoffDay, it's usually due in the SAME month as the statement (e.g. Cutoff 1, Due 20)
+  // Otherwise, it's due in the month AFTER (e.g. Cutoff 25, Due 15)
+  let dueYear: number
+  let dueMonth: number // 0-indexed
+  if (dueDateDay > billingCutoffDay) {
+    dueYear  = stmtYear
+    dueMonth = stmtMonth
+  } else {
+    dueYear  = stmtMonth === 11 ? stmtYear + 1 : stmtYear
+    dueMonth = stmtMonth === 11 ? 0 : stmtMonth + 1
+  }
 
   // Clamp dueDateDay to the actual number of days in the due month
   const daysInDueMonth = new Date(dueYear, dueMonth + 1, 0).getDate()

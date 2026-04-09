@@ -256,7 +256,7 @@ export default function AddCreditRecordScreen() {
     if (!selectedCard || !transactionDate) return null
     try {
       return deriveBillingInfo(
-        new Date(transactionDate),
+        transactionDate,
         selectedCard.billing_cutoff_day,
         selectedCard.due_date_day,
       )

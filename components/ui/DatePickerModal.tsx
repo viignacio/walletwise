@@ -61,6 +61,11 @@ export function DatePickerModal({ isVisible, value, onClose, onChange }: Props) 
     setSelectedDate(formattedDate);
   };
 
+  const today = new Date();
+  const todayDate = today.getDate();
+  const todayMonth = today.getMonth();
+  const todayYear = today.getFullYear();
+
   const handleApply = () => {
     onChange(selectedDate);
     onClose();
@@ -97,16 +102,11 @@ export function DatePickerModal({ isVisible, value, onClose, onChange }: Props) 
             {dayCells.map((day) => {
               const dateStr = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               const isSelected = selectedDate === dateStr;
-              
-              const today = new Date();
-              const isToday = 
-                day === today.getDate() && 
-                currentMonthIndex === today.getMonth() && 
-                currentYear === today.getFullYear();
+              const isToday = day === todayDate && currentMonthIndex === todayMonth && currentYear === todayYear;
 
               return (
                 <Pressable
-                  key={`day-${day}`}
+                  key={`day-${currentYear}-${currentMonthIndex}-${day}`}
                   onPress={() => handleSelectDay(day)}
                   style={[styles.cell, { width: cellWidth, height: cellWidth }]}
                 >
