@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Pressable, Modal } from 'react-native';
+import { View, StyleSheet, Pressable, Modal, useWindowDimensions } from 'react-native';
 import { Text } from './Text';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors, Radius, Spacing, TextStyles, FontFamily } from '../../constants';
@@ -15,9 +15,11 @@ const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 export function DatePickerModal({ isVisible, value, onClose, onChange }: Props) {
   const [viewDate, setViewDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(value);
 
   useEffect(() => {
     if (isVisible) {
+      setSelectedDate(value);
       if (value) {
         const [y, m, d] = value.split('-').map(Number);
         if (y && m && d) {
@@ -49,9 +51,18 @@ export function DatePickerModal({ isVisible, value, onClose, onChange }: Props) 
   const emptyCells = Array.from({ length: firstDayOfMonth }, (_, i) => i);
   const dayCells = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = Math.min(windowWidth - Spacing[4] * 2, 360);
+  const horizontalPadding = Spacing[4];
+  const cellWidth = (cardWidth - horizontalPadding * 2) / 7;
+
   const handleSelectDay = (day: number) => {
     const formattedDate = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    onChange(formattedDate);
+    setSelectedDate(formattedDate);
+  };
+
+  const handleApply = () => {
+    onChange(selectedDate);
     onClose();
   };
 
@@ -81,11 +92,11 @@ export function DatePickerModal({ isVisible, value, onClose, onChange }: Props) 
 
           <View style={styles.grid}>
             {emptyCells.map((val) => (
-              <View key={`empty-${val}`} style={styles.cell} />
+              <View key={`empty-${val}`} style={[styles.cell, { width: cellWidth, height: cellWidth }]} />
             ))}
             {dayCells.map((day) => {
               const dateStr = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-              const isSelected = value === dateStr;
+              const isSelected = selectedDate === dateStr;
               
               const today = new Date();
               const isToday = 
@@ -97,23 +108,33 @@ export function DatePickerModal({ isVisible, value, onClose, onChange }: Props) 
                 <Pressable
                   key={`day-${day}`}
                   onPress={() => handleSelectDay(day)}
-                  style={[
-                    styles.cell,
-                    styles.activeCell,
-                    isSelected && styles.selectedCell,
-                    !isSelected && isToday && styles.todayCell
-                  ]}
+                  style={[styles.cell, { width: cellWidth, height: cellWidth }]}
                 >
-                  <Text style={[
-                    styles.cellText,
-                    isSelected && styles.selectedCellText,
-                    !isSelected && isToday && styles.todayCellText
+                  <View style={[
+                    styles.cellInner,
+                    isToday && styles.todayCell,
+                    isSelected && styles.selectedCell,
                   ]}>
-                    {day}
-                  </Text>
+                    <Text style={[
+                      styles.cellText,
+                      isToday && styles.todayCellText,
+                      isSelected && styles.selectedCellText,
+                    ]}>
+                      {day}
+                    </Text>
+                  </View>
                 </Pressable>
               );
             })}
+          </View>
+
+          <View style={styles.footer}>
+            <Pressable style={styles.footerBtn} onPress={onClose}>
+              <Text style={styles.cancelLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable style={[styles.footerBtn, styles.applyBtn]} onPress={handleApply}>
+              <Text style={styles.applyLabel}>Apply</Text>
+            </Pressable>
           </View>
         </Pressable>
       </Pressable>
@@ -133,8 +154,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     padding: Spacing[4],
-    width: '100%',
     maxWidth: 360,
+    width: '100%',
     shadowColor: Colors.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -146,6 +167,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing[4],
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: Spacing[2],
+    marginTop: Spacing[4],
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: Spacing[4],
+  },
+  footerBtn: {
+    paddingHorizontal: Spacing[4],
+    paddingVertical: Spacing[2],
+    borderRadius: Radius.md,
+  },
+  applyBtn: {
+    backgroundColor: Colors.primary,
+  },
+  cancelLabel: {
+    ...TextStyles.label,
+    color: Colors.text.muted,
+  },
+  applyLabel: {
+    ...TextStyles.label,
+    color: Colors.white,
+    fontFamily: FontFamily.bold,
   },
   monthSelector: {
     flexDirection: 'row',
@@ -180,33 +227,38 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   cell: {
-    width: '14.28%',
-    aspectRatio: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 2,
   },
-  activeCell: {
-    borderRadius: Radius.md,
+  cellInner: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.full,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden', // Ensures background doesn't bleed past radius
   },
   selectedCell: {
     backgroundColor: Colors.primary,
   },
   todayCell: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    borderRadius: Radius.full,
   },
   cellText: {
     ...TextStyles.label,
     color: Colors.text.primary,
+    lineHeight: undefined,
+    includeFontPadding: false,
+    textAlign: 'center',
   },
   selectedCellText: {
     color: Colors.white,
     fontFamily: FontFamily.bold,
   },
   todayCellText: {
-    color: Colors.primary,
+    color: Colors.text.primary, // Ensure text is readable
     fontFamily: FontFamily.bold,
   },
 });
