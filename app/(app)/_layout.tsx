@@ -167,6 +167,16 @@ function AppShell() {
           headerShadowVisible: false,
         }}
       />
+      <Stack.Screen
+        name="edit-payment"
+        options={{
+          presentation: 'modal',
+          title: 'Edit Payment',
+          headerStyle: { backgroundColor: Colors.white },
+          headerTitleStyle: { color: Colors.text.primary, fontWeight: '700', fontSize: 17 },
+          headerShadowVisible: false,
+        }}
+      />
     </Stack>
   )
 }

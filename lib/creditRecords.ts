@@ -525,3 +525,41 @@ export async function markOverduePayments(): Promise<void> {
 function roundCurrency(amount: number): number {
   return Math.round(amount * 100) / 100
 }
+
+/**
+ * Update an existing payment row's actual_amount locally, without cascading.
+ * The new amount is capped at the expected_amount.
+ */
+export async function editPaymentLocal(paymentId: string, newAmount: number): Promise<void> {
+  const { data: payment, error: fetchErr } = await supabase
+    .from('payments')
+    .select('id, expected_amount')
+    .eq('id', paymentId)
+    .single()
+  if (fetchErr) throw fetchErr
+
+  if (newAmount > payment.expected_amount) {
+    throw new Error('Amount cannot exceed the expected amount for local edits.')
+  }
+
+  let status: PaymentStatus = 'upcoming'
+  if (newAmount >= payment.expected_amount) {
+    status = 'paid'
+  } else if (newAmount > 0) {
+    status = 'underpaid'
+  }
+
+  const paid_date = status === 'paid' ? new Date().toISOString().split('T')[0] : null
+
+  const { error: updateErr } = await supabase
+    .from('payments')
+    .update({
+      actual_amount: newAmount,
+      status,
+      paid_date,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', paymentId)
+  
+  if (updateErr) throw updateErr
+}

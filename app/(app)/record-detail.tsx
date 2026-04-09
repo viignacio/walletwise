@@ -132,11 +132,14 @@ function SummaryCard({ record }: SummaryCardProps) {
 interface PaymentRowProps {
   payment: Payment
   index: number
+  recordId: string
 }
-function PaymentRow({ payment, index }: PaymentRowProps) {
+function PaymentRow({ payment, index, recordId }: PaymentRowProps) {
   const color = statusColor(payment.status)
-  return (
-    <View style={styles.paymentRow}>
+  const router = useRouter()
+
+  const content = (
+    <>
       <View style={[styles.paymentIndex, { backgroundColor: Colors.primaryMuted }]}>
         <Text style={styles.paymentIndexText}>{index + 1}</Text>
       </View>
@@ -159,6 +162,26 @@ function PaymentRow({ payment, index }: PaymentRowProps) {
           <Text style={styles.paymentPaidDate}>on {formatDate(payment.paid_date)}</Text>
         )}
       </View>
+    </>
+  )
+
+  if (payment.actual_amount !== null) {
+    return (
+      <Pressable 
+        style={({ pressed }) => [styles.paymentRow, pressed && styles.pressed, { flexDirection: 'row', alignItems: 'center' }]} 
+        onPress={() => router.push({ pathname: '/(app)/edit-payment', params: { id: recordId, paymentId: payment.id } })}
+      >
+        <View style={{ flex: 1, flexDirection: 'row', gap: Spacing[3] }}>
+          {content}
+        </View>
+        <Ionicons name="pencil-outline" size={16} color={Colors.text.muted} />
+      </Pressable>
+    )
+  }
+
+  return (
+    <View style={styles.paymentRow}>
+      {content}
     </View>
   )
 }
@@ -251,7 +274,7 @@ export default function RecordDetailScreen() {
               data.payments.map((p, i) => (
                 <View key={p.id}>
                   {i > 0 && <View style={styles.divider} />}
-                  <PaymentRow payment={p} index={i} />
+                  <PaymentRow payment={p} index={i} recordId={data.id} />
                 </View>
               ))
             )}
