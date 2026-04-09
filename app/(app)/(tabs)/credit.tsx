@@ -48,6 +48,11 @@ function initials(name: string): string {
     .join('')
 }
 
+function formatNextDue(isoString: string): string {
+  const date = new Date(isoString)
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 // ─── Section header ────────────────────────────────────────────────────────────
 
 interface SectionHeaderProps {
@@ -142,9 +147,11 @@ const InstallmentGroup = memo(function InstallmentGroup({
               </Text>
               <Text style={styles.recordMeta}>
                 {record.payment_scheme === 'installment'
-                  ? `${record.installment_months}× · `
-                  : 'Direct · '}
-                {record.status}
+                  ? `${record.payments_remaining ?? record.installment_months}×`
+                  : 'Direct'}
+                {record.next_due_date
+                  ? ` · Next due: ${formatNextDue(record.next_due_date)}`
+                  : ''}
               </Text>
             </View>
             <Text style={styles.recordAmount}>
