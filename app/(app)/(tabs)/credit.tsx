@@ -149,9 +149,14 @@ const InstallmentGroup = memo(function InstallmentGroup({
                 {record.payment_scheme === 'installment'
                   ? `${record.payments_remaining ?? record.installment_months}×`
                   : 'Direct'}
-                {record.next_due_date
-                  ? ` · Next due: ${formatNextDue(record.next_due_date)}`
-                  : ''}
+                {record.next_due_date ? (
+                  <>
+                    {' · '}
+                    <Text style={{ color: Colors.expense }}>
+                      Next due: {formatNextDue(record.next_due_date)}
+                    </Text>
+                  </>
+                ) : null}
               </Text>
             </View>
             <Text style={styles.recordAmount}>
