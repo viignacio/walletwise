@@ -1,7 +1,5 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { Slot, useRouter, useSegments } from 'expo-router'
-import { supabase } from '../lib/supabase'
-import { Session } from '@supabase/supabase-js'
 import { Text, View, ActivityIndicator, Pressable, StyleSheet } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { useFonts } from 'expo-font'
@@ -21,6 +19,35 @@ import { Colors } from '../constants/colors'
 import { TextStyles } from '../constants/typography'
 import { Spacing } from '../constants/spacing'
 import { activatePendingTransactions } from '../lib/recurring'
+import { ClerkProvider, useAuth } from '@clerk/clerk-expo'
+import * as SecureStore from 'expo-secure-store'
+
+const tokenCache = {
+  async getToken(key: string) {
+    try {
+      const item = await SecureStore.getItemAsync(key)
+      if (item) {
+        console.log(`${key} was used 🔐 \n`)
+      } else {
+        console.log('No values stored under key: ' + key)
+      }
+      return item
+    } catch (error) {
+      console.error('SecureStore get item error: ', error)
+      await SecureStore.deleteItemAsync(key)
+      return null
+    }
+  },
+  async saveToken(key: string, value: string) {
+    try {
+      return SecureStore.setItemAsync(key, value)
+    } catch (err) {
+      return
+    }
+  },
+}
+
+const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!
 
 // The config plugin (app.json) embeds fonts at native build time for fast availability.
 // useFonts registers them under our key names — required on iOS, which uses PostScript
@@ -116,6 +143,39 @@ const errorStyles = StyleSheet.create({
   },
 })
 
+function InitialLayout() {
+  const { isLoaded, isSignedIn, userId } = useAuth()
+  const router = useRouter()
+  const segments = useSegments()
+
+  useEffect(() => {
+    if (!userId) return
+    activatePendingTransactions(userId).catch(() => {})
+  }, [userId])
+
+  useEffect(() => {
+    if (!isLoaded) return
+
+    const inAuthGroup = segments[0] === '(auth)'
+
+    if (!isSignedIn && !inAuthGroup) {
+      router.replace('/(auth)/login')
+    } else if (isSignedIn && inAuthGroup) {
+      router.replace('/(app)/(tabs)/dashboard')
+    }
+  }, [isSignedIn, isLoaded, segments])
+
+  if (!isLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background }}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    )
+  }
+
+  return <Slot />
+}
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     IBMPlexSans_400Regular,
@@ -125,52 +185,8 @@ export default function RootLayout() {
     IBMPlexMono_400Regular,
     IBMPlexMono_600SemiBold,
   })
-  const [session, setSession] = useState<Session | null>(null)
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
-  const segments = useSegments()
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) {
-        setSession(null)
-      } else {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          setSession(session)
-        })
-      }
-      setLoading(false)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session)
-      }
-    )
-
-    return () => subscription.unsubscribe()
-  }, [])
-
-  // Silently activate any pending recurring transactions on app open.
-  // Runs in the background — does not block the UI or affect the loading state.
-  useEffect(() => {
-    if (!session?.user.id) return
-    activatePendingTransactions(session.user.id).catch(() => {})
-  }, [session?.user.id])
-
-  useEffect(() => {
-    if (loading) return
-
-    const inAuthGroup = segments[0] === '(auth)'
-
-    if (!session && !inAuthGroup) {
-      router.replace('/(auth)/login')
-    } else if (session && inAuthGroup) {
-      router.replace('/(app)/(tabs)/dashboard')
-    }
-  }, [session, loading, segments])
-
-  if (loading || !fontsLoaded) {
+  if (!fontsLoaded) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background }}>
         <ActivityIndicator size="large" color={Colors.primary} />
@@ -179,11 +195,13 @@ export default function RootLayout() {
   }
 
   return (
-    <ErrorBoundary>
-      <KeyboardProvider>
-        <StatusBar style="dark" />
-        <Slot />
-      </KeyboardProvider>
-    </ErrorBoundary>
+    <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+      <ErrorBoundary>
+        <KeyboardProvider>
+          <StatusBar style="dark" />
+          <InitialLayout />
+        </KeyboardProvider>
+      </ErrorBoundary>
+    </ClerkProvider>
   )
 }

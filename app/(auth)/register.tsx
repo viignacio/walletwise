@@ -7,14 +7,17 @@ import {
 import { Text, useAlertModal } from '../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { supabase } from '../../lib/supabase'
 import { Colors, TextStyles, Spacing, Radius, Shadows } from '../../constants'
 import { useRouter } from 'expo-router'
+import { useSignUp } from '@clerk/clerk-expo'
 
 export default function RegisterScreen() {
+  const { isLoaded, signUp, setActive } = useSignUp()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [pendingVerification, setPendingVerification] = useState(false)
+  const [code, setCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
@@ -22,6 +25,7 @@ export default function RegisterScreen() {
   const { showAlert, alertModal } = useAlertModal()
 
   const handleRegister = async () => {
+    if (!isLoaded) return
     if (!name || !email || !password) {
       showAlert('Missing fields', 'Please fill in all fields.')
       return
@@ -31,27 +35,41 @@ export default function RegisterScreen() {
       return
     }
     setLoading(true)
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: name },
-      },
-    })
-    if (error) {
-      showAlert('Registration failed', error.message)
+    try {
+      await signUp.create({
+        firstName: name, // assuming single field for first name or split
+        emailAddress: email,
+        password,
+      })
+
+      // Send verification email
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
+      setPendingVerification(true)
+    } catch (err: any) {
+      console.error(err)
+      showAlert('Registration failed', err.errors?.[0]?.message || err.message)
+    } finally {
       setLoading(false)
-    } else if (data.session) {
-      // Email confirmation is disabled — user is signed in immediately.
-      // The root layout's auth listener will navigate to (app) automatically.
-      setLoading(false)
-    } else {
-      // Email confirmation is enabled — user must confirm before signing in.
-      showAlert(
-        'Almost there!',
-        'Check your email to confirm your account, then sign in.',
-        () => router.replace('/(auth)/login'),
-      )
+    }
+  }
+
+  const handleVerify = async () => {
+    if (!isLoaded) return
+    setLoading(true)
+    try {
+      const completeSignUp = await signUp.attemptEmailAddressVerification({
+        code,
+      })
+      if (completeSignUp.status === 'complete') {
+        await setActive({ session: completeSignUp.createdSessionId })
+        // router will automatically redirect via _layout.tsx
+      } else {
+        showAlert('Verification incomplete', 'Further action is required.')
+      }
+    } catch (err: any) {
+      console.error(err)
+      showAlert('Verification failed', err.errors?.[0]?.message || err.message)
+    } finally {
       setLoading(false)
     }
   }
@@ -80,72 +98,103 @@ export default function RegisterScreen() {
 
         {/* Form */}
         <View style={styles.card}>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Full name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Your name"
-              placeholderTextColor={Colors.text.muted}
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-              returnKeyType="next"
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor={Colors.text.muted}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              returnKeyType="next"
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={[styles.input, styles.inputWithIcon]}
-                placeholder="Min. 6 characters"
-                placeholderTextColor={Colors.text.muted}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="done"
-                onSubmitEditing={handleRegister}
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowPassword(v => !v)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color={Colors.text.secondary}
+          {!pendingVerification ? (
+            <>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Full name</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Your name"
+                  placeholderTextColor={Colors.text.muted}
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                  returnKeyType="next"
                 />
-              </TouchableOpacity>
-            </View>
-          </View>
+              </View>
 
-          <TouchableOpacity
-            style={[styles.primaryButton, loading && styles.buttonDisabled]}
-            onPress={handleRegister}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryButtonText}>
-              {loading ? 'Creating account…' : 'Create Account'}
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="you@example.com"
+                  placeholderTextColor={Colors.text.muted}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  returnKeyType="next"
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Password</Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={[styles.input, styles.inputWithIcon]}
+                    placeholder="Min. 6 characters"
+                    placeholderTextColor={Colors.text.muted}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={handleRegister}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword(v => !v)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={20}
+                      color={Colors.text.secondary}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                onPress={handleRegister}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {loading ? 'Creating account…' : 'Create Account'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Verification Code</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter code sent to email"
+                  placeholderTextColor={Colors.text.muted}
+                  value={code}
+                  onChangeText={setCode}
+                  autoCapitalize="none"
+                  keyboardType="number-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={handleVerify}
+                />
+              </View>
+              <TouchableOpacity
+                style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                onPress={handleVerify}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {loading ? 'Verifying…' : 'Verify Email'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
 
         <TouchableOpacity style={styles.footerLink} onPress={() => router.back()}>

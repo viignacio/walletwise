@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   View, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView,
@@ -7,13 +7,16 @@ import {
 import { Text, useAlertModal } from '../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { supabase } from '../../lib/supabase'
 import { Colors, TextStyles, Spacing, Radius, Shadows } from '../../constants'
 import { useRouter } from 'expo-router'
-import * as WebBrowser from 'expo-web-browser'
-import * as Linking from 'expo-linking'
+import { useSignIn, useOAuth } from '@clerk/clerk-expo'
+import { useWarmUpBrowser } from '../../hooks/useWarmUpBrowser'
 
 export default function LoginScreen() {
+  useWarmUpBrowser()
+  const { signIn, setActive, isLoaded } = useSignIn()
+  const { startOAuthFlow } = useOAuth({ strategy: 'oauth_google' })
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -23,76 +26,40 @@ export default function LoginScreen() {
   const { showAlert, alertModal } = useAlertModal()
 
   const handleEmailLogin = async () => {
+    if (!isLoaded) return
     if (!email || !password) {
       showAlert('Missing fields', 'Please enter your email and password.')
       return
     }
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) showAlert('Sign in failed', error.message)
-    setLoading(false)
+    try {
+      const completeSignIn = await signIn.create({
+        identifier: email,
+        password,
+      })
+      if (completeSignIn.status === 'complete') {
+        await setActive({ session: completeSignIn.createdSessionId })
+      } else {
+        showAlert('Sign in incomplete', 'Further action is required.')
+      }
+    } catch (err: any) {
+      showAlert('Sign in failed', err.errors?.[0]?.message || err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleGoogleLogin = async () => {
-    setLoading(true)
     try {
-      const redirectTo = 'walletwise://auth/callback'
+      setLoading(true)
+      const { createdSessionId, signIn, signUp, setActive } = await startOAuthFlow()
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo,
-          skipBrowserRedirect: true,
-        },
-      })
-
-      if (error || !data?.url) {
-        showAlert('Google sign in failed', error?.message ?? 'Could not initiate sign in.')
-        return
+      if (createdSessionId && setActive) {
+        await setActive({ session: createdSessionId })
       }
-
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo)
-
-      if (result.type === 'success') {
-        const url = result.url
-
-        // Implicit flow: tokens in hash fragment (#access_token=...&refresh_token=...)
-        const hashIndex = url.indexOf('#')
-        if (hashIndex !== -1) {
-          const fragment = url.slice(hashIndex + 1)
-          const params: Record<string, string> = {}
-          fragment.split('&').forEach(pair => {
-            const eq = pair.indexOf('=')
-            if (eq !== -1) params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1))
-          })
-          if (params.access_token && params.refresh_token) {
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: params.access_token,
-              refresh_token: params.refresh_token,
-            })
-            if (sessionError) showAlert('Sign in failed', sessionError.message)
-            return
-          }
-        }
-
-        // PKCE flow: code in query params (?code=...)
-        const queryIndex = url.indexOf('?')
-        if (queryIndex !== -1) {
-          const query = url.slice(queryIndex + 1)
-          const params: Record<string, string> = {}
-          query.split('&').forEach(pair => {
-            const eq = pair.indexOf('=')
-            if (eq !== -1) params[pair.slice(0, eq)] = decodeURIComponent(pair.slice(eq + 1))
-          })
-          if (params.code) {
-            const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code)
-            if (exchangeError) showAlert('Sign in failed', exchangeError.message)
-            return
-          }
-        }
-
-        showAlert('Sign in failed', 'No authorization code received.')
-      }
+    } catch (err: any) {
+      console.error('OAuth error', err)
+      showAlert('Sign in failed', err.errors?.[0]?.message || err.message)
     } finally {
       setLoading(false)
     }
