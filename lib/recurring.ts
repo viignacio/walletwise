@@ -1,4 +1,6 @@
-import { supabase } from './supabase'
+import { db } from './db'
+import { transactions } from './schema'
+import { eq, and, lte, inArray } from 'drizzle-orm'
 import { Transaction } from '../types/database'
 
 /**
@@ -25,40 +27,42 @@ function nextMonthDate(dateStr: string): string {
 export async function activatePendingTransactions(userId: string): Promise<void> {
   const today = new Date().toISOString().split('T')[0]
 
-  const { data: due, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('is_pending', true)
-    .lte('date', today)
+  const due = await db
+    .select()
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        eq(transactions.isPending, true),
+        lte(transactions.date, today)
+      )
+    )
 
-  if (error || !due || due.length === 0) return
-
-  const transactions = due as Transaction[]
+  if (!due || due.length === 0) return
 
   // Activate all due pending transactions in one batch update
-  const ids = transactions.map(t => t.id)
-  await supabase
-    .from('transactions')
-    .update({ is_pending: false })
-    .in('id', ids)
+  const ids = due.map(t => t.id)
+  await db
+    .update(transactions)
+    .set({ isPending: false })
+    .where(inArray(transactions.id, ids))
 
   // Generate next month's pending for each activated transaction
-  const nextPending = transactions.map(tx => ({
-    household_id: tx.household_id,
-    user_id: tx.user_id,
+  const nextPending = due.map(tx => ({
+    householdId: tx.householdId,
+    userId: tx.userId,
     type: tx.type,
     amount: tx.amount,
     category: tx.category,
     description: tx.description,
     date: nextMonthDate(tx.date),
     notes: tx.notes,
-    is_recurring: true,
-    recurring_group_id: tx.recurring_group_id,
-    is_pending: true,
+    isRecurring: true,
+    recurringGroupId: tx.recurringGroupId,
+    isPending: true,
   }))
 
-  await supabase.from('transactions').insert(nextPending)
+  await db.insert(transactions).values(nextPending)
 }
 
 /**
@@ -66,9 +70,12 @@ export async function activatePendingTransactions(userId: string): Promise<void>
  * Past occurrences (is_pending = false) are preserved.
  */
 export async function deleteFutureRecurrences(recurringGroupId: string): Promise<void> {
-  await supabase
-    .from('transactions')
-    .delete()
-    .eq('recurring_group_id', recurringGroupId)
-    .eq('is_pending', true)
+  await db
+    .delete(transactions)
+    .where(
+      and(
+        eq(transactions.recurringGroupId, recurringGroupId),
+        eq(transactions.isPending, true)
+      )
+    )
 }

@@ -8,6 +8,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller'
 import { Text, useAlertModal, DatePickerField } from '../../components/ui'
 import { useRouter, useLocalSearchParams } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout, FontFamily } from '../../constants'
@@ -36,6 +37,7 @@ function defaultDate(paramYear?: string, paramMonth?: string): string {
 
 export default function AddTransactionScreen() {
   const router = useRouter()
+  const { user } = useUser()
   const { year: paramYear, month: paramMonth } = useLocalSearchParams<{ year?: string; month?: string }>()
   const insets = useSafeAreaInsets()
   const { showToast } = useToast()
@@ -101,7 +103,8 @@ export default function AddTransactionScreen() {
 
     setSaving(true)
     try {
-      const profile = await getProfile()
+      if (!user) throw new Error('Not authenticated')
+      const profile = await getProfile(user.id, user.fullName)
 
       const amountNum = parseFloat(parseFloat(rawAmount).toFixed(2))
       const recurringGroupId = isRecurring ? Crypto.randomUUID() : undefined
@@ -189,7 +192,7 @@ export default function AddTransactionScreen() {
     } else if (chip === 'custom') {
       setCustomPct('')
     } else {
-      const base = parseAmountInput(baseAmount)
+      const base = Number(parseAmountInput(baseAmount))
       if (base > 0) {
         const computed = ((base * chip) / 100).toFixed(2)
         setAmount(formatAmountInput(computed))
@@ -202,7 +205,7 @@ export default function AddTransactionScreen() {
     const num = parseInt(clean, 10)
     if (clean === '' || (num >= 0 && num <= 100)) {
       setCustomPct(clean)
-      const base = parseAmountInput(baseAmount)
+      const base = Number(parseAmountInput(baseAmount))
       if (base > 0 && clean !== '') {
         const computed = ((base * (num || 0)) / 100).toFixed(2)
         setAmount(formatAmountInput(computed))
@@ -272,7 +275,7 @@ export default function AddTransactionScreen() {
         </View>
 
         {/* Percentage chips */}
-        {parseAmountInput(baseAmount) > 0 && (
+        {Number(parseAmountInput(baseAmount)) > 0 && (
           <>
             <View style={styles.percentChips}>
               {(['full', 80, 50, 20, 'custom'] as const).map((chip) => {

@@ -11,6 +11,7 @@ import {
 } from 'react-native'
 import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
@@ -51,10 +52,11 @@ export default function AddCardScreen() {
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { showAlert, alertModal } = useAlertModal()
+  const { user } = useUser()
 
   useEffect(() => {
-    if (!id) return
-    getCards()
+    if (!id || !user) return
+    getCards(user.id)
       .then((cards) => {
         const card = cards.find((c) => c.id === id)
         if (!card) return
@@ -100,7 +102,8 @@ export default function AddCardScreen() {
       if (isEdit && id) {
         await updateCard(id, payload)
       } else {
-        await addCard(payload)
+        if (!user) throw new Error('Not authenticated')
+        await addCard(user.id, payload)
       }
       router.back()
     } catch (e: unknown) {

@@ -5,7 +5,10 @@ import { ConfirmModal, Text, useAlertModal } from '../../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontFamily } from '../../../constants'
-import { supabase } from '../../../lib/supabase'
+import { useUser, useAuth } from '@clerk/clerk-expo'
+import { db } from '../../../lib/db'
+import { profiles, householdSettings, households, householdInvites } from '../../../lib/schema'
+import { eq } from 'drizzle-orm'
 import { formatAmount } from '../../../lib/wallet'
 import { getAllReminderSettings, setReminderSetting, ReminderSetting } from '../../../lib/notificationSettings'
 import { scheduleReminders } from '../../../lib/reminderScheduler'
@@ -97,37 +100,45 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets()
   const { showAlert, alertModal } = useAlertModal()
 
-  useEffect(() => {
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return
-      setEmail(user.email ?? null)
-      setDisplayName(user.user_metadata?.full_name ?? null)
+  const { user } = useUser()
+  const { signOut } = useAuth()
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('household_id')
-        .eq('id', user.id)
-        .single()
-      if (!profile) return
-      setHouseholdId(profile.household_id)
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!user) return
+      setEmail(user.primaryEmailAddress?.emailAddress ?? null)
+      setDisplayName(user.fullName ?? null)
+
+      const profile = await db
+        .select({ householdId: profiles.householdId })
+        .from(profiles)
+        .where(eq(profiles.id, user.id))
+        .limit(1)
+        
+      if (!profile || profile.length === 0) return
+      setHouseholdId(profile[0].householdId)
 
       const [walletSettings, reminderSettings] = await Promise.all([
-        supabase
-          .from('household_settings')
-          .select('low_balance_threshold, low_balance_notification_enabled')
-          .eq('household_id', profile.household_id)
-          .single(),
-        getAllReminderSettings(),
+        db
+          .select({
+            lowBalanceThreshold: householdSettings.lowBalanceThreshold,
+            lowBalanceNotificationEnabled: householdSettings.lowBalanceNotificationEnabled
+          })
+          .from(householdSettings)
+          .where(eq(householdSettings.householdId, profile[0].householdId))
+          .limit(1),
+        getAllReminderSettings(user.id),
       ])
 
-      if (walletSettings.data) {
-        setThreshold(walletSettings.data.low_balance_threshold)
-        setThresholdEnabled(walletSettings.data.low_balance_notification_enabled)
+      if (walletSettings && walletSettings.length > 0) {
+        setThreshold(Number(walletSettings[0].lowBalanceThreshold))
+        setThresholdEnabled(walletSettings[0].lowBalanceNotificationEnabled ?? false)
       }
       setCardDue(reminderSettings.card_due)
       setBorrowerPayment(reminderSettings.borrower_payment)
-    })
-  }, [])
+    }
+    loadSettings()
+  }, [user])
 
   const openThresholdEdit = () => {
     setThresholdInput(String(threshold))
@@ -141,12 +152,12 @@ export default function SettingsScreen() {
       showAlert('Invalid amount', 'Please enter a valid threshold amount.')
       return
     }
-    const { error } = await supabase
-      .from('household_settings')
-      .update({ low_balance_threshold: value })
-      .eq('household_id', householdId)
-    if (error) {
-      showAlert('Error', error.message)
+    try {
+      await db.update(householdSettings)
+        .set({ lowBalanceThreshold: String(value) })
+        .where(eq(householdSettings.householdId, householdId))
+    } catch (error: any) {
+      showAlert('Error', error.message ?? 'Unknown error')
       return
     }
     setThreshold(value)
@@ -156,11 +167,12 @@ export default function SettingsScreen() {
   const toggleThresholdEnabled = async () => {
     if (!householdId) return
     const newValue = !thresholdEnabled
-    const { error } = await supabase
-      .from('household_settings')
-      .update({ low_balance_notification_enabled: newValue })
-      .eq('household_id', householdId)
-    if (!error) setThresholdEnabled(newValue)
+    try {
+      await db.update(householdSettings)
+        .set({ lowBalanceNotificationEnabled: newValue })
+        .where(eq(householdSettings.householdId, householdId))
+      setThresholdEnabled(newValue)
+    } catch {}
   }
 
   const openReminderEdit = (type: 'card_due' | 'borrower_payment') => {
@@ -177,20 +189,22 @@ export default function SettingsScreen() {
       return
     }
     const current = editingReminder === 'card_due' ? cardDue : borrowerPayment
-    await setReminderSetting(editingReminder, days, current.enabled)
+    if (!user) return
+    await setReminderSetting(user.id, editingReminder, days, current.enabled)
     if (editingReminder === 'card_due') setCardDue({ ...current, lead_days: days })
     else setBorrowerPayment({ ...current, lead_days: days })
     setEditingReminder(null)
-    scheduleReminders().catch(() => {})
+    scheduleReminders(user.id).catch(() => {})
   }
 
   const toggleReminder = async (type: 'card_due' | 'borrower_payment') => {
     const current = type === 'card_due' ? cardDue : borrowerPayment
     const updated = { ...current, enabled: !current.enabled }
-    await setReminderSetting(type, updated.lead_days, updated.enabled)
+    if (!user) return
+    await setReminderSetting(user.id, type, updated.lead_days, updated.enabled)
     if (type === 'card_due') setCardDue(updated)
     else setBorrowerPayment(updated)
-    scheduleReminders().catch(() => {})
+    scheduleReminders(user.id).catch(() => {})
   }
 
   // ── Profile ──────────────────────────────────────────────────
@@ -207,11 +221,10 @@ export default function SettingsScreen() {
     }
     setNameSaving(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       await Promise.all([
-        supabase.from('profiles').update({ name }).eq('id', user.id),
-        supabase.auth.updateUser({ data: { full_name: name } }),
+        db.update(profiles).set({ name }).where(eq(profiles.id, user.id)),
+        user.update({ firstName: name.split(' ')[0] ?? '', lastName: name.split(' ').slice(1).join(' ') }),
       ])
       setDisplayName(name)
       setProfileModalOpen(false)
@@ -230,11 +243,11 @@ export default function SettingsScreen() {
     setHouseholdLoading(true)
     try {
       const [hResult, mResult] = await Promise.all([
-        supabase.from('households').select('name').eq('id', householdId).single(),
-        supabase.from('profiles').select('id, name').eq('household_id', householdId),
+        db.select({ name: households.name }).from(households).where(eq(households.id, householdId)).limit(1),
+        db.select({ id: profiles.id, name: profiles.name }).from(profiles).where(eq(profiles.householdId, householdId)),
       ])
-      if (hResult.data) setHouseholdName(hResult.data.name)
-      if (mResult.data) setHouseholdMembers(mResult.data)
+      if (hResult && hResult.length > 0) setHouseholdName(hResult[0].name)
+      if (mResult) setHouseholdMembers(mResult)
     } finally {
       setHouseholdLoading(false)
     }
@@ -244,19 +257,17 @@ export default function SettingsScreen() {
     if (!householdId) return
     setInviteLoading(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       // Generate a readable 6-char code (no ambiguous chars)
       const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
       const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
-      const { error } = await supabase.from('household_invites').insert({
-        household_id: householdId,
+      await db.insert(householdInvites).values({
+        householdId: householdId,
         code,
-        created_by: user.id,
-        expires_at: expiresAt,
+        createdBy: user.id,
+        expiresAt: expiresAt,
       })
-      if (error) throw error
       setInviteCode(code)
     } catch (e: unknown) {
       showAlert('Error', e instanceof Error ? e.message : 'Could not generate invite.')
@@ -281,32 +292,30 @@ export default function SettingsScreen() {
     }
     setJoinLoading(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
       const now = new Date().toISOString()
-      const { data: invite, error: ie } = await supabase
-        .from('household_invites')
-        .select('household_id, expires_at')
-        .eq('code', code)
-        .single()
+      const invites = await db
+        .select({ householdId: householdInvites.householdId, expiresAt: householdInvites.expiresAt })
+        .from(householdInvites)
+        .where(eq(householdInvites.code, code))
+        .limit(1)
 
-      if (ie || !invite) {
+      if (!invites || invites.length === 0) {
         showAlert('Invalid code', 'This invite code was not found. Check that it was entered correctly.')
         return
       }
-      if (invite.expires_at && invite.expires_at < now) {
+      const invite = invites[0]
+      if (invite.expiresAt && invite.expiresAt < now) {
         showAlert('Code expired', 'This invite code has expired. Ask the household owner to generate a new one.')
         return
       }
 
-      const { error: pe } = await supabase
-        .from('profiles')
-        .update({ household_id: invite.household_id })
-        .eq('id', user.id)
-      if (pe) throw pe
+      await db.update(profiles)
+        .set({ householdId: invite.householdId })
+        .where(eq(profiles.id, user.id))
 
-      setHouseholdId(invite.household_id)
+      setHouseholdId(invite.householdId)
       setJoinModalOpen(false)
       setJoinCode('')
       showAlert('Joined!', 'You have joined the household. Pull to refresh on any screen to see shared data.')
@@ -856,7 +865,7 @@ export default function SettingsScreen() {
         message="Are you sure you want to sign out?"
         confirmLabel="Sign Out"
         destructive
-        onConfirm={() => { setConfirmSignOut(false); supabase.auth.signOut() }}
+        onConfirm={() => { setConfirmSignOut(false); signOut() }}
         onCancel={() => setConfirmSignOut(false)}
       />
       {alertModal}

@@ -22,9 +22,12 @@ import Animated, {
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter, useFocusEffect } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontWeight, FontFamily } from '../../../constants'
-import { supabase } from '../../../lib/supabase'
+import { db } from '../../../lib/db'
+import { profiles } from '../../../lib/schema'
+import { eq } from 'drizzle-orm'
 import { getProfile } from '../../../lib/profile'
 import {
   fetchMonthTransactions,
@@ -315,18 +318,21 @@ export default function WalletScreen() {
     setYtdRows(rows)
   }, [now])
 
+  const { user } = useUser()
+
   const loadData = useCallback(async () => {
     try {
       let hid = householdId
       if (!hid) {
-        const profile = await getProfile()
+        if (!user) return
+        const profile = await getProfile(user.id, user.fullName)
         hid = profile.household_id
         setHouseholdId(hid)
 
-        const { data: members } = await supabase
-          .from('profiles')
-          .select('id, name')
-          .eq('household_id', hid)
+        const members = await db
+          .select({ id: profiles.id, name: profiles.name })
+          .from(profiles)
+          .where(eq(profiles.householdId, hid))
         const map: Record<string, string> = {}
         for (const m of members ?? []) map[m.id] = m.name
         setProfileMap(map)

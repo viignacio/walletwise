@@ -12,11 +12,14 @@ import {
 } from 'react-native'
 import { ConfirmModal, Text, useAlertModal, DatePickerField } from '../../components/ui'
 import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontFamily } from '../../constants'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../../constants/categories'
-import { supabase } from '../../lib/supabase'
+import { db } from '../../lib/db'
+import { transactions } from '../../lib/schema'
+import { eq } from 'drizzle-orm'
 import {
   updateTransaction,
   deleteTransaction,
@@ -35,6 +38,7 @@ import { Transaction, TransactionType } from '../../types/database'
 export default function EditTransactionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
+  const { user } = useUser()
   const insets = useSafeAreaInsets()
   const { showToast } = useToast()
 
@@ -59,18 +63,16 @@ export default function EditTransactionScreen() {
   // Load transaction
   useEffect(() => {
     if (!id) return
-    supabase
-      .from('transactions')
-      .select('*')
-      .eq('id', id)
-      .single()
-      .then(({ data, error }) => {
-        if (error || !data) {
+    db.select()
+      .from(transactions)
+      .where(eq(transactions.id, id))
+      .then((data) => {
+        if (!data || data.length === 0) {
           showAlert('Error', 'Transaction not found')
           router.back()
           return
         }
-        const tx = data as Transaction
+        const tx = data[0] as unknown as Transaction
         setOriginal(tx)
         setType(tx.type)
         const loadedAmount = formatAmountInput(String(tx.amount))
@@ -111,7 +113,8 @@ export default function EditTransactionScreen() {
 
     setSaving(true)
     try {
-      const profile = await getProfile()
+      if (!user) throw new Error('Not authenticated')
+      const profile = await getProfile(user.id, user.fullName)
 
       const amountNum = parseFloat(parseFloat(rawAmount).toFixed(2))
       await updateTransaction(id, {
@@ -176,7 +179,8 @@ export default function EditTransactionScreen() {
     if (!original) return
     setDeleting(true)
     try {
-      const profile = await getProfile()
+      if (!user) throw new Error('Not authenticated')
+      const profile = await getProfile(user.id, user.fullName)
 
       if (includeFuture && original.recurring_group_id) {
         await deleteFutureRecurrences(original.recurring_group_id)
@@ -216,7 +220,7 @@ export default function EditTransactionScreen() {
     } else if (chip === 'custom') {
       setCustomPct('')
     } else {
-      const base = parseAmountInput(baseAmount)
+      const base = Number(parseAmountInput(baseAmount))
       if (base > 0) {
         const computed = ((base * chip) / 100).toFixed(2)
         setAmount(formatAmountInput(computed))
@@ -229,7 +233,7 @@ export default function EditTransactionScreen() {
     const num = parseInt(clean, 10)
     if (clean === '' || (num >= 0 && num <= 100)) {
       setCustomPct(clean)
-      const base = parseAmountInput(baseAmount)
+      const base = Number(parseAmountInput(baseAmount))
       if (base > 0 && clean !== '') {
         const computed = ((base * (num || 0)) / 100).toFixed(2)
         setAmount(formatAmountInput(computed))
@@ -315,7 +319,7 @@ export default function EditTransactionScreen() {
         </View>
 
         {/* Percentage chips */}
-        {parseAmountInput(baseAmount) > 0 && (
+        {Number(parseAmountInput(baseAmount)) > 0 && (
           <>
             <View style={styles.percentChips}>
               {(['full', 80, 50, 20, 'custom'] as const).map((chip) => {

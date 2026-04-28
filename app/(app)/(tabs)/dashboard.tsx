@@ -10,9 +10,12 @@ import {
 import { Text } from '../../../components/ui'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useRouter } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { Colors, TextStyles, Spacing, Radius, Layout, Shadows, FontFamily } from '../../../constants'
-import { supabase } from '../../../lib/supabase'
+import { db } from '../../../lib/db'
+import { payments, lendingRecords, installments, transactions } from '../../../lib/schema'
+import { eq, and, desc } from 'drizzle-orm'
 import { getProfile } from '../../../lib/profile'
 import { fetchRunningBalance, formatAmount, Transaction } from '../../../lib/wallet'
 import { getCards } from '../../../lib/cards'
@@ -81,25 +84,36 @@ async function fetchUpcomingDues(cards: Card[], today: Date): Promise<UpcomingDu
   const dues: UpcomingDue[] = []
 
   for (const card of cards) {
-    const due = nextDueDate(card.due_date_day, today)
+    const dueDateDay = Number(card.due_date_day)
+    if (!dueDateDay || isNaN(dueDateDay)) continue   // skip cards with invalid day
+
+    const due = nextDueDate(dueDateDay, today)
     if (due > windowEnd) continue
 
     const dueDateStr = toISODate(due)
     const daysAway = daysBetween(today, due)
 
     // Collect expected payments for this card on this due date
-    const { data } = await supabase
-      .from('payments')
-      .select('expected_amount, lending_records(card_id, installments(name))')
-      .eq('status', 'upcoming')
-      .eq('due_date', dueDateStr)
+    const data = await db
+      .select({
+        expectedAmount: payments.expectedAmount,
+        installmentName: installments.name
+      })
+      .from(payments)
+      .innerJoin(lendingRecords, eq(payments.lendingRecordId, lendingRecords.id))
+      .leftJoin(installments, eq(lendingRecords.installmentId, installments.id))
+      .where(
+        and(
+          eq(payments.status, 'upcoming'),
+          eq(payments.dueDate, dueDateStr),
+          eq(lendingRecords.cardId, card.id)
+        )
+      )
 
     const map = new Map<string, number>()
-    for (const row of data ?? []) {
-      const record = row.lending_records as { card_id: string; installments: { name: string } | null } | null
-      if (!record || record.card_id !== card.id) continue
-      const name = record.installments?.name ?? 'Unknown'
-      map.set(name, (map.get(name) ?? 0) + Number(row.expected_amount))
+    for (const row of data) {
+      const name = row.installmentName ?? 'Unknown'
+      map.set(name, (map.get(name) ?? 0) + Number(row.expectedAmount))
     }
 
     const collections = Array.from(map.entries()).map(([name, amount]) => ({ name, amount }))
@@ -120,16 +134,15 @@ async function fetchUpcomingDues(cards: Card[], today: Date): Promise<UpcomingDu
   return dues.sort((a, b) => a.daysAway - b.daysAway)
 }
 
-async function fetchRecentTransactions(householdId: string, limit: number): Promise<Transaction[]> {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('household_id', householdId)
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(limit)
-  if (error) throw error
-  return (data ?? []) as Transaction[]
+async function fetchRecentTransactions(householdId: string, limitNum: number): Promise<Transaction[]> {
+  const data = await db
+    .select()
+    .from(transactions)
+    .where(eq(transactions.householdId, householdId))
+    .orderBy(desc(transactions.date), desc(transactions.createdAt))
+    .limit(limitNum)
+    
+  return (data ?? []) as unknown as Transaction[]
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -225,6 +238,7 @@ function SectionHeader({ title }: { title: string }) {
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets()
   const router = useRouter()
+  const { user } = useUser()
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -234,13 +248,14 @@ export default function DashboardScreen() {
   const [recentActivity, setRecentActivity] = useState<Transaction[]>([])
 
   const load = useCallback(async () => {
+    if (!user) return
     try {
-      const profile = await getProfile()
+      const profile = await getProfile(user.id, user.fullName)
       const today = startOfDay(new Date())
 
       const [bal, cards, activity] = await Promise.all([
         fetchRunningBalance(profile.household_id),
-        getCards(),
+        getCards(user.id),
         fetchRecentTransactions(profile.household_id, 5),
       ])
 
@@ -256,7 +271,7 @@ export default function DashboardScreen() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [user])
 
   useFocusEffect(
     useCallback(() => {

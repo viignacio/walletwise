@@ -10,7 +10,9 @@
  */
 
 import Constants from 'expo-constants'
-import { supabase } from './supabase'
+import { db } from './db'
+import { cards, payments, lendingRecords, installments } from './schema'
+import { eq, and, inArray, gte, lte, asc } from 'drizzle-orm'
 import { formatAmount } from './wallet'
 import { getAllReminderSettings } from './notificationSettings'
 
@@ -34,14 +36,16 @@ const NOTIF_HOUR = 9
  * Safe to call multiple times (idempotent via cancel-then-schedule).
  * Errors are swallowed — never crashes the app.
  */
-export async function scheduleReminders(): Promise<void> {
+export async function scheduleReminders(userId: string): Promise<void> {
   if (IS_EXPO_GO) return // Local notifications not supported in Expo Go (SDK 53+)
+  if (!userId) return
+
   try {
     // Check permission first — only proceed if granted
     const { status } = await notifs().getPermissionsAsync()
     if (status !== 'granted') return
 
-    const [settings] = await Promise.all([getAllReminderSettings()])
+    const [settings] = await Promise.all([getAllReminderSettings(userId)])
 
     // Cancel all existing WalletWise-scheduled reminders
     await cancelAllReminders()
@@ -49,11 +53,11 @@ export async function scheduleReminders(): Promise<void> {
     const today = startOfDay(new Date())
 
     if (settings.card_due.enabled) {
-      await scheduleCardDueReminders(settings.card_due.lead_days, today)
+      await scheduleCardDueReminders(userId, settings.card_due.lead_days, today)
     }
 
     if (settings.borrower_payment.enabled) {
-      await schedulePaymentReminders(settings.borrower_payment.lead_days, today)
+      await schedulePaymentReminders(userId, settings.borrower_payment.lead_days, today)
     }
   } catch (e) {
     console.warn('[reminderScheduler] Failed to schedule reminders:', e)
@@ -78,13 +82,17 @@ export async function cancelAllReminders(): Promise<void> {
 
 // ── Card due reminders ────────────────────────────────────────────────────────
 
-async function scheduleCardDueReminders(leadDays: number, today: Date): Promise<void> {
-  const { data: cards, error } = await supabase.from('cards').select('*')
-  if (error || !cards?.length) return
+async function scheduleCardDueReminders(userId: string, leadDays: number, today: Date): Promise<void> {
+  const userCards = await db
+    .select()
+    .from(cards)
+    .where(eq(cards.userId, userId))
 
-  for (const card of cards) {
+  if (!userCards?.length) return
+
+  for (const card of userCards) {
     // Find next due date for this card (based on due_date_day)
-    const nextDue = nextDueDate(card.due_date_day, today)
+    const nextDue = nextDueDate(card.dueDateDay, today)
     const notifDate = daysBeforeDate(nextDue, leadDays)
 
     // Only schedule if the notification date is today or in the future
@@ -115,21 +123,29 @@ async function getCardCollections(
 ): Promise<Array<{ name: string; amount: number }>> {
   const dueDateStr = toISODate(dueDate)
 
-  const { data } = await supabase
-    .from('payments')
-    .select('expected_amount, lending_records(card_id, installments(name))')
-    .eq('status', 'upcoming')
-    .eq('due_date', dueDateStr)
+  const data = await db
+    .select({
+      expectedAmount: payments.expectedAmount,
+      installmentName: installments.name,
+    })
+    .from(payments)
+    .innerJoin(lendingRecords, eq(payments.lendingRecordId, lendingRecords.id))
+    .leftJoin(installments, eq(lendingRecords.installmentId, installments.id))
+    .where(
+      and(
+        eq(payments.status, 'upcoming'),
+        eq(payments.dueDate, dueDateStr),
+        eq(lendingRecords.cardId, cardId)
+      )
+    )
 
   if (!data?.length) return []
 
   // Filter by card and group by installment name
   const map = new Map<string, number>()
   for (const row of data) {
-    const record = row.lending_records as { card_id: string; installments: { name: string } | null } | null
-    if (!record || record.card_id !== cardId) continue
-    const name = record.installments?.name ?? 'Unknown'
-    map.set(name, (map.get(name) ?? 0) + Number(row.expected_amount))
+    const name = row.installmentName ?? 'Unknown'
+    map.set(name, (map.get(name) ?? 0) + Number(row.expectedAmount))
   }
 
   return Array.from(map.entries()).map(([name, amount]) => ({ name, amount }))
@@ -137,41 +153,48 @@ async function getCardCollections(
 
 // ── Borrower payment reminders ────────────────────────────────────────────────
 
-async function schedulePaymentReminders(leadDays: number, today: Date): Promise<void> {
+async function schedulePaymentReminders(userId: string, leadDays: number, today: Date): Promise<void> {
   // Fetch all upcoming/underpaid payments within the next 90 days
   const windowEnd = new Date(today)
   windowEnd.setDate(windowEnd.getDate() + 90)
 
-  const { data, error } = await supabase
-    .from('payments')
-    .select('id, due_date, expected_amount, lending_records(description, installments(name))')
-    .in('status', ['upcoming', 'underpaid'])
-    .gte('due_date', toISODate(today))
-    .lte('due_date', toISODate(windowEnd))
-    .order('due_date', { ascending: true })
+  const data = await db
+    .select({
+      id: payments.id,
+      dueDate: payments.dueDate,
+      expectedAmount: payments.expectedAmount,
+      description: lendingRecords.description,
+      installmentName: installments.name,
+    })
+    .from(payments)
+    .innerJoin(lendingRecords, eq(payments.lendingRecordId, lendingRecords.id))
+    .leftJoin(installments, eq(lendingRecords.installmentId, installments.id))
+    .where(
+      and(
+        eq(payments.userId, userId),
+        inArray(payments.status, ['upcoming', 'underpaid']),
+        gte(payments.dueDate, toISODate(today)),
+        lte(payments.dueDate, toISODate(windowEnd))
+      )
+    )
+    .orderBy(asc(payments.dueDate))
 
-  if (error || !data?.length) return
+  if (!data?.length) return
 
-  for (const payment of data) {
-    const record = payment.lending_records as {
-      description: string
-      installments: { name: string } | null
-    } | null
-    if (!record) continue
-
-    const dueDate   = startOfDay(new Date(payment.due_date))
+  for (const row of data) {
+    const dueDate   = startOfDay(new Date(row.dueDate))
     const notifDate = daysBeforeDate(dueDate, leadDays)
     if (notifDate < today) continue
 
     const daysAway   = daysBetween(today, dueDate)
-    const name       = record.installments?.name ?? 'Borrower'
-    const amount     = formatAmount(Number(payment.expected_amount))
-    const desc       = record.description
+    const name       = row.installmentName ?? 'Borrower'
+    const amount     = formatAmount(Number(row.expectedAmount))
+    const desc       = row.description
 
     const body = `${name}'s payment of ${amount} for ${desc} is due in ${daysAway} day${daysAway !== 1 ? 's' : ''}.`
 
     await scheduleAt(
-      `${PREFIX_PAYMENT}${payment.id}`,
+      `${PREFIX_PAYMENT}${row.id}`,
       'Payment Due',
       body,
       notifDate,

@@ -7,9 +7,49 @@
  *   - Cascade logic when logging a payment
  */
 
-import { supabase } from './supabase'
+import { db } from './db'
+import { lendingRecords, payments as paymentsTable, installments } from './schema'
+import { eq, inArray, lt, ne, and, asc, desc } from 'drizzle-orm'
 import { LendingRecord, Payment, PaymentStatus } from '../types/database'
 import { deriveBillingInfo } from './billing'
+
+// ── Map Drizzle rows → snake_case interfaces ──────────────────────────────────
+
+function mapLendingRecord(row: typeof lendingRecords.$inferSelect): LendingRecord {
+  return {
+    id:                        row.id,
+    user_id:                   row.userId,
+    card_id:                   row.cardId,
+    installment_id:            row.installmentId,
+    description:               row.description,
+    total_amount:              Number(row.totalAmount),
+    transaction_date:          row.transactionDate,
+    payment_scheme:            row.paymentScheme as LendingRecord['payment_scheme'],
+    installment_months:        row.installmentMonths ?? null,
+    monthly_amount:            row.monthlyAmount != null ? Number(row.monthlyAmount) : null,
+    start_payment_month:       row.startPaymentMonth,
+    expected_card_charge_month: row.expectedCardChargeMonth ?? null,
+    status:                    row.status as LendingRecord['status'],
+    created_at:                row.createdAt,
+    updated_at:                row.updatedAt,
+  }
+}
+
+function mapPayment(row: typeof paymentsTable.$inferSelect): Payment {
+  return {
+    id:                row.id,
+    user_id:           row.userId,
+    lending_record_id: row.lendingRecordId,
+    month_index:       row.monthIndex,
+    due_date:          row.dueDate,
+    expected_amount:   Number(row.expectedAmount),
+    actual_amount:     row.actualAmount != null ? Number(row.actualAmount) : null,
+    paid_date:         row.paidDate ?? null,
+    status:            row.status as PaymentStatus,
+    created_at:        row.createdAt,
+    updated_at:        row.updatedAt,
+  }
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,34 +81,61 @@ export interface CascadePreview {
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 /** All active (non-settled) records for the current user, grouped by installment. */
-export async function getRecordsByInstallment(): Promise<RecordsByInstallment[]> {
-  const { data, error } = await supabase
-    .from('lending_records')
-    .select('*, installments(name), payments(status, due_date, month_index)')
-    .neq('status', 'settled')
-    .order('created_at', { ascending: true })
-  if (error) throw error
+export async function getRecordsByInstallment(userId: string): Promise<RecordsByInstallment[]> {
+  if (!userId) throw new Error('Not authenticated')
+
+  const data = await db
+    .select({
+      record: lendingRecords,
+      installmentName: installments.name,
+      payment: paymentsTable
+    })
+    .from(lendingRecords)
+    .leftJoin(installments, eq(lendingRecords.installmentId, installments.id))
+    .leftJoin(paymentsTable, eq(lendingRecords.id, paymentsTable.lendingRecordId))
+    .where(
+      and(
+        eq(lendingRecords.userId, userId),
+        ne(lendingRecords.status, 'settled')
+      )
+    )
+    .orderBy(asc(lendingRecords.createdAt))
+
+  // Group by record to reconstruct the nested payments array
+  const recordMap = new Map<string, { record: LendingRecord, installmentName: string, payments: Payment[] }>()
+  
+  for (const row of data) {
+    const recordId = row.record.id
+    if (!recordMap.has(recordId)) {
+      recordMap.set(recordId, {
+        record: mapLendingRecord(row.record),
+        installmentName: row.installmentName ?? row.record.installmentId,
+        payments: []
+      })
+    }
+    if (row.payment) {
+      recordMap.get(recordId)!.payments.push(mapPayment(row.payment))
+    }
+  }
 
   const map = new Map<string, RecordsByInstallment>()
-  for (const row of data ?? []) {
-    const iid: string = row.installment_id
+  for (const { record, installmentName, payments } of Array.from(recordMap.values())) {
+    const iid = record.installment_id
     if (!map.has(iid)) {
       map.set(iid, {
         installment_id: iid,
-        installment_name: (row.installments as { name: string } | null)?.name ?? iid,
+        installment_name: installmentName,
         total_owed: 0,
         records: [],
       })
     }
     const entry = map.get(iid)!
-    entry.total_owed += Number(row.total_amount ?? 0)
+    entry.total_owed += Number(record.total_amount ?? 0)
 
     let next_due_date: string | null = null
     let payments_remaining = 0
     
-    // @ts-ignore - payments is joined
-    const payments = row.payments as any[] | undefined
-    if (Array.isArray(payments)) {
+    if (payments && payments.length > 0) {
       const unpaidPayments = payments.filter((p) => p.status && !['paid'].includes(p.status))
       payments_remaining = unpaidPayments.length
       if (unpaidPayments.length > 0) {
@@ -78,7 +145,7 @@ export async function getRecordsByInstallment(): Promise<RecordsByInstallment[]>
     }
 
     entry.records.push({
-      ...(row as LendingRecord),
+      ...record,
       next_due_date,
       payments_remaining,
     })
@@ -88,28 +155,24 @@ export async function getRecordsByInstallment(): Promise<RecordsByInstallment[]>
 
 /** Single record with its payments, ordered by month_index. */
 export async function getRecordWithPayments(id: string): Promise<LendingRecordWithPayments> {
-  const [{ data: record, error: re }, { data: payments, error: pe }] = await Promise.all([
-    supabase.from('lending_records').select('*').eq('id', id).single(),
-    supabase
-      .from('payments')
-      .select('*')
-      .eq('lending_record_id', id)
-      .order('month_index', { ascending: true }),
+  const [[record], payments] = await Promise.all([
+    db.select().from(lendingRecords).where(eq(lendingRecords.id, id)),
+    db.select().from(paymentsTable).where(eq(paymentsTable.lendingRecordId, id)).orderBy(asc(paymentsTable.monthIndex))
   ])
-  if (re) throw re
-  if (pe) throw pe
-  return { ...(record as LendingRecord), payments: (payments as Payment[]) ?? [] }
+  
+  if (!record) throw new Error('Record not found')
+  return { ...mapLendingRecord(record), payments: payments.map(mapPayment) }
 }
 
 /** All records for a specific installment (including settled). */
 export async function getRecordsForInstallment(installment_id: string): Promise<LendingRecord[]> {
-  const { data, error } = await supabase
-    .from('lending_records')
-    .select('*')
-    .eq('installment_id', installment_id)
-    .order('transaction_date', { ascending: false })
-  if (error) throw error
-  return data as LendingRecord[]
+  const data = await db
+    .select()
+    .from(lendingRecords)
+    .where(eq(lendingRecords.installmentId, installment_id))
+    .orderBy(desc(lendingRecords.transactionDate))
+    
+  return data.map(mapLendingRecord)
 }
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
@@ -132,11 +195,8 @@ export interface CreateRecordInput {
  * Creates a LendingRecord and auto-generates Payment rows.
  * Returns the created record with its payments.
  */
-export async function createRecord(input: CreateRecordInput): Promise<LendingRecordWithPayments> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
+export async function createRecord(userId: string, input: CreateRecordInput): Promise<LendingRecordWithPayments> {
+  if (!userId) throw new Error('Not authenticated')
 
   // Derive billing info
   const billing = deriveBillingInfo(input.transaction_date, input.billing_cutoff_day, input.due_date_day)
@@ -146,30 +206,28 @@ export async function createRecord(input: CreateRecordInput): Promise<LendingRec
     : input.total_amount
 
   // Insert record
-  const { data: record, error: re } = await supabase
-    .from('lending_records')
-    .insert({
-      user_id: user.id,
-      card_id: input.card_id,
-      installment_id: input.installment_id,
+  const [record] = await db
+    .insert(lendingRecords)
+    .values({
+      userId,
+      cardId: input.card_id,
+      installmentId: input.installment_id,
       description: input.description,
-      total_amount: input.total_amount,
-      transaction_date: input.transaction_date,
-      payment_scheme: input.payment_scheme,
-      installment_months: input.payment_scheme === 'installment' ? input.installment_months : null,
-      monthly_amount: monthly,
-      start_payment_month: input.start_payment_month,
-      expected_card_charge_month: billing.statementMonth,
+      totalAmount: input.total_amount.toString(),
+      transactionDate: input.transaction_date,
+      paymentScheme: input.payment_scheme,
+      installmentMonths: input.payment_scheme === 'installment' ? input.installment_months : null,
+      monthlyAmount: monthly.toString(),
+      startPaymentMonth: input.start_payment_month,
+      expectedCardChargeMonth: billing.statementMonth,
       status: 'active',
     })
-    .select()
-    .single()
-  if (re) throw re
+    .returning()
 
   // Generate payment schedule
   const payments = generatePaymentSchedule({
-    userId: user.id,
-    recordId: (record as LendingRecord).id,
+    userId,
+    recordId: record.id,
     paymentScheme: input.payment_scheme,
     totalAmount: input.total_amount,
     monthlyAmount: monthly,
@@ -181,23 +239,28 @@ export async function createRecord(input: CreateRecordInput): Promise<LendingRec
   })
 
   if (payments.length > 0) {
-    const { error: pe } = await supabase.from('payments').insert(payments)
-    if (pe) throw pe
+    const dbPayments = payments.map(p => ({
+      userId: p.user_id,
+      lendingRecordId: p.lending_record_id,
+      monthIndex: p.month_index,
+      dueDate: p.due_date,
+      expectedAmount: p.expected_amount.toString(),
+      status: p.status,
+    }))
+    await db.insert(paymentsTable).values(dbPayments)
   }
 
-  const { data: inserted, error: qe } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('lending_record_id', (record as LendingRecord).id)
-    .order('month_index', { ascending: true })
-  if (qe) throw qe
+  const inserted = await db
+    .select()
+    .from(paymentsTable)
+    .where(eq(paymentsTable.lendingRecordId, record.id))
+    .orderBy(asc(paymentsTable.monthIndex))
 
-  return { ...(record as LendingRecord), payments: (inserted as Payment[]) ?? [] }
+  return { ...mapLendingRecord(record), payments: inserted.map(mapPayment) }
 }
 
 export async function deleteRecord(id: string): Promise<void> {
-  const { error } = await supabase.from('lending_records').delete().eq('id', id)
-  if (error) throw error
+  await db.delete(lendingRecords).where(eq(lendingRecords.id, id))
 }
 
 // ─── Payment schedule generation ─────────────────────────────────────────────
@@ -318,7 +381,6 @@ export async function applyPayment(
         status: entry.resulting_status,
         paid_date: entry.resulting_status === 'paid' ? today : null,
         ...(adj !== undefined ? { expected_amount: payment.expected_amount + adj } : {}),
-        updated_at: new Date().toISOString(),
       },
     })
   }
@@ -334,7 +396,6 @@ export async function applyPayment(
             status: 'paid' as PaymentStatus,
             actual_amount: 0,
             paid_date: today,
-            updated_at: new Date().toISOString(),
           },
         })
       }
@@ -352,7 +413,6 @@ export async function applyPayment(
           id: payment.id,
           patch: {
             expected_amount: payment.expected_amount + delta,
-            updated_at: new Date().toISOString(),
           },
         })
       }
@@ -361,17 +421,23 @@ export async function applyPayment(
 
   // Write all updates sequentially
   for (const { id, patch } of updates) {
-    const { error } = await supabase.from('payments').update(patch).eq('id', id)
-    if (error) throw error
+    await db
+      .update(paymentsTable)
+      .set({
+        ...(patch.actual_amount !== undefined && patch.actual_amount !== null && { actualAmount: patch.actual_amount.toString() }),
+        ...(patch.status && { status: patch.status }),
+        ...(patch.paid_date !== undefined && { paidDate: patch.paid_date }),
+        ...(patch.expected_amount !== undefined && patch.expected_amount !== null && { expectedAmount: patch.expected_amount.toString() }),
+      })
+      .where(eq(paymentsTable.id, id))
   }
 
   // Settle the record if needed
   if (preview.settles_record) {
-    const { error } = await supabase
-      .from('lending_records')
-      .update({ status: 'settled', updated_at: new Date().toISOString() })
-      .eq('id', recordId)
-    if (error) throw error
+    await db
+      .update(lendingRecords)
+      .set({ status: 'settled' })
+      .where(eq(lendingRecords.id, recordId))
   }
 }
 
@@ -466,57 +532,73 @@ export async function markOverduePayments(): Promise<void> {
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
     // 1. Find all upcoming/underpaid payments past their due date
-    //    (overdue ones are already handled — selecting them again would double-apply the rollover)
-    const { data: pastDue, error: pe } = await supabase
-      .from('payments')
-      .select('id, lending_record_id, month_index, expected_amount, actual_amount')
-      .in('status', ['upcoming', 'underpaid'])
-      .lt('due_date', todayStr)
-    if (pe) throw pe
+    const pastDue = await db
+      .select({
+        id: paymentsTable.id,
+        lendingRecordId: paymentsTable.lendingRecordId,
+        monthIndex: paymentsTable.monthIndex,
+        expectedAmount: paymentsTable.expectedAmount,
+        actualAmount: paymentsTable.actualAmount
+      })
+      .from(paymentsTable)
+      .where(
+        and(
+          inArray(paymentsTable.status, ['upcoming', 'underpaid']),
+          lt(paymentsTable.dueDate, todayStr)
+        )
+      )
 
     // 2. For each: mark overdue and roll the remaining shortfall into the next month
-    for (const p of pastDue ?? []) {
-      await supabase
-        .from('payments')
-        .update({ status: 'overdue', updated_at: new Date().toISOString() })
-        .eq('id', p.id)
+    for (const p of pastDue) {
+      await db
+        .update(paymentsTable)
+        .set({ status: 'overdue' })
+        .where(eq(paymentsTable.id, p.id))
 
-      const shortfall = p.expected_amount - (p.actual_amount ?? 0)
+      const expectedAmount = Number(p.expectedAmount)
+      const actualAmount = p.actualAmount ? Number(p.actualAmount) : 0
+      const shortfall = expectedAmount - actualAmount
+
       if (shortfall > 0) {
-        const { data: next } = await supabase
-          .from('payments')
-          .select('id, expected_amount')
-          .eq('lending_record_id', p.lending_record_id)
-          .eq('month_index', p.month_index + 1)
-          .maybeSingle()
+        const [next] = await db
+          .select({ id: paymentsTable.id, expectedAmount: paymentsTable.expectedAmount })
+          .from(paymentsTable)
+          .where(
+            and(
+              eq(paymentsTable.lendingRecordId, p.lendingRecordId),
+              eq(paymentsTable.monthIndex, p.monthIndex + 1)
+            )
+          )
+          .limit(1)
+
         if (next) {
-          await supabase
-            .from('payments')
-            .update({
-              expected_amount: next.expected_amount + shortfall,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', next.id)
+          const nextExpected = Number(next.expectedAmount)
+          await db
+            .update(paymentsTable)
+            .set({ expectedAmount: (nextExpected + shortfall).toString() })
+            .where(eq(paymentsTable.id, next.id))
         }
       }
     }
 
     // 3. Mark active lending_records overdue if they have any overdue payment
-    const { data: overduePayments, error: qe } = await supabase
-      .from('payments')
-      .select('lending_record_id')
-      .eq('status', 'overdue')
-    if (qe) throw qe
+    const overduePayments = await db
+      .select({ lendingRecordId: paymentsTable.lendingRecordId })
+      .from(paymentsTable)
+      .where(eq(paymentsTable.status, 'overdue'))
 
-    const recordIds = [...new Set((overduePayments ?? []).map((p) => p.lending_record_id))]
+    const recordIds = [...new Set((overduePayments ?? []).map((p) => p.lendingRecordId))]
     if (recordIds.length === 0) return
 
-    const { error: re } = await supabase
-      .from('lending_records')
-      .update({ status: 'overdue', updated_at: new Date().toISOString() })
-      .in('id', recordIds)
-      .eq('status', 'active')
-    if (re) throw re
+    await db
+      .update(lendingRecords)
+      .set({ status: 'overdue' })
+      .where(
+        and(
+          inArray(lendingRecords.id, recordIds),
+          eq(lendingRecords.status, 'active')
+        )
+      )
   } catch (e) {
     console.warn('[creditRecords] markOverduePayments failed:', e)
   }
@@ -533,19 +615,20 @@ function roundCurrency(amount: number): number {
  * The new amount is capped at the expected_amount.
  */
 export async function editPaymentLocal(paymentId: string, newAmount: number): Promise<void> {
-  const { data: payment, error: fetchErr } = await supabase
-    .from('payments')
-    .select('id, expected_amount')
-    .eq('id', paymentId)
-    .single()
-  if (fetchErr) throw fetchErr
+  const [payment] = await db
+    .select({ id: paymentsTable.id, expectedAmount: paymentsTable.expectedAmount })
+    .from(paymentsTable)
+    .where(eq(paymentsTable.id, paymentId))
+    
+  if (!payment) throw new Error('Payment not found')
 
-  if (newAmount > payment.expected_amount) {
+  const expectedAmount = Number(payment.expectedAmount)
+  if (newAmount > expectedAmount) {
     throw new Error('Amount cannot exceed the expected amount for local edits.')
   }
 
   let status: PaymentStatus = 'upcoming'
-  if (newAmount >= payment.expected_amount) {
+  if (newAmount >= expectedAmount) {
     status = 'paid'
   } else if (newAmount > 0) {
     status = 'underpaid'
@@ -553,15 +636,12 @@ export async function editPaymentLocal(paymentId: string, newAmount: number): Pr
 
   const paid_date = status === 'paid' ? new Date().toISOString().split('T')[0] : null
 
-  const { error: updateErr } = await supabase
-    .from('payments')
-    .update({
-      actual_amount: newAmount,
+  await db
+    .update(paymentsTable)
+    .set({
+      actualAmount: newAmount.toString(),
       status,
-      paid_date,
-      updated_at: new Date().toISOString()
+      paidDate: paid_date,
     })
-    .eq('id', paymentId)
-  
-  if (updateErr) throw updateErr
+    .where(eq(paymentsTable.id, paymentId))
 }

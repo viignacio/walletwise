@@ -10,6 +10,7 @@ import {
 } from 'react-native'
 import { ConfirmModal, Text, useAlertModal } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
@@ -40,10 +41,11 @@ export default function AddInstallmentScreen() {
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { showAlert, alertModal } = useAlertModal()
+  const { user } = useUser()
 
   useEffect(() => {
-    if (!id) return
-    getInstallments()
+    if (!id || !user) return
+    getInstallments(user.id)
       .then((installments) => {
         const installment = installments.find((b) => b.id === id)
         if (!installment) return
@@ -51,7 +53,7 @@ export default function AddInstallmentScreen() {
         setNotes(installment.notes ?? '')
       })
       .catch(() => {})
-  }, [id])
+  }, [id, user])
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -67,7 +69,8 @@ export default function AddInstallmentScreen() {
       if (isEdit && id) {
         await updateInstallment(id, payload)
       } else {
-        await addInstallment(payload)
+        if (!user) throw new Error('Not authenticated')
+        await addInstallment(user.id, payload)
       }
       router.back()
     } catch (e: unknown) {

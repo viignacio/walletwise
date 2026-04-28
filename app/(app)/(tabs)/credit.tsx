@@ -8,6 +8,7 @@ import {
 } from 'react-native'
 import { Text } from '../../../components/ui'
 import { useRouter } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import { useFocusEffect } from '@react-navigation/native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -227,6 +228,7 @@ const InstallmentItem = memo(function InstallmentItem({
 export default function CreditScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const { user } = useUser()
 
   const [cards, setCards] = useState<Card[]>([])
   const [installments, setInstallments] = useState<Installment[]>([])
@@ -238,7 +240,7 @@ export default function CreditScreen() {
     useCallback(() => {
       let active = true
       if (!initialized.current) setLoading(true)
-      Promise.all([getCards(), getInstallments(), getRecordsByInstallment()])
+      Promise.all([getCards(user!.id), getInstallments(user!.id), getRecordsByInstallment(user!.id)])
         .then(([c, i, g]) => {
           if (!active) return
           initialized.current = true

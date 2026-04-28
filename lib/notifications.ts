@@ -2,7 +2,9 @@ import * as Device from 'expo-device'
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { supabase } from './supabase'
+import { db } from './db'
+import { pushTokens, profiles } from './schema'
+import { eq, inArray, ne, and } from 'drizzle-orm'
 
 // Expo Go does not support expo-notifications in SDK 53+.
 // Use lazy require() so the module is never imported in Expo Go — a top-level
@@ -53,11 +55,15 @@ export async function registerPushToken(userId: string): Promise<void> {
 
   try {
     const { data: token } = await N.getExpoPushTokenAsync({ projectId })
-    const { error } = await supabase
-      .from('push_tokens')
-      .upsert({ user_id: userId, token }, { onConflict: 'user_id,token' })
-    if (error) console.warn('Push token DB upsert failed:', error.message)
-    else console.log('Push token registered:', token)
+    
+    await db.insert(pushTokens)
+      .values({ userId, token })
+      .onConflictDoUpdate({ 
+        target: [pushTokens.userId, pushTokens.token], 
+        set: { updatedAt: new Date().toISOString() }
+      })
+      
+    console.log('Push token registered:', token)
   } catch (e) {
     console.warn('Push token registration failed:', e)
   }
@@ -103,22 +109,24 @@ export async function sendHouseholdPush(
   excludeUserId: string,
   body: string
 ): Promise<void> {
-  const { data: members, error: membersErr } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('household_id', householdId)
-    .neq('id', excludeUserId)
+  const members = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(
+      and(
+        eq(profiles.householdId, householdId),
+        ne(profiles.id, excludeUserId)
+      )
+    )
 
-  if (membersErr) { console.warn('Push: failed to fetch members:', membersErr.message); return }
   if (!members?.length) { console.log('Push: no other household members found'); return }
 
   const memberIds = members.map((m) => m.id)
-  const { data: tokens, error: tokensErr } = await supabase
-    .from('push_tokens')
-    .select('token')
-    .in('user_id', memberIds)
+  const tokens = await db
+    .select({ token: pushTokens.token })
+    .from(pushTokens)
+    .where(inArray(pushTokens.userId, memberIds))
 
-  if (tokensErr) { console.warn('Push: failed to fetch tokens:', tokensErr.message); return }
   if (!tokens?.length) { console.warn('Push: no push tokens found for members', memberIds); return }
 
   console.log(`Push: sending to ${tokens.length} token(s)`)
@@ -130,18 +138,18 @@ export async function sendAllHouseholdPush(
   householdId: string,
   body: string
 ): Promise<void> {
-  const { data: members } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('household_id', householdId)
+  const members = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.householdId, householdId))
 
   if (!members?.length) return
 
   const memberIds = members.map((m) => m.id)
-  const { data: tokens } = await supabase
-    .from('push_tokens')
-    .select('token')
-    .in('user_id', memberIds)
+  const tokens = await db
+    .select({ token: pushTokens.token })
+    .from(pushTokens)
+    .where(inArray(pushTokens.userId, memberIds))
 
   if (!tokens?.length) return
 

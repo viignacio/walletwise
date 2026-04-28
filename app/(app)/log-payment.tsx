@@ -113,7 +113,7 @@ export default function LogPaymentScreen() {
         .then((r) => {
           if (!active) return
           setRecordDescription(r.description)
-          setMonthlyAmount(r.monthly_amount)
+          setMonthlyAmount(Number(r.monthly_amount ?? 0))
           const paidTotal = r.payments
             .filter((p) => p.status === 'paid')
             .reduce((sum, p) => sum + Number(p.actual_amount ?? 0), 0)

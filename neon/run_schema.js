@@ -1,9 +1,10 @@
+require('dotenv').config({ path: '.env' });
 const { Client } = require('pg');
 const fs = require('fs');
 
 async function main() {
   const client = new Client({
-    connectionString: 'postgresql://neondb_owner:npg_NbaJBdV2XW5Y@ep-weathered-rice-ak4febqu-pooler.c-3.us-west-2.aws.neon.tech/neondb?sslmode=require'
+    connectionString: process.env.EXPO_PUBLIC_DATABASE_URL
   });
   await client.connect();
   const schema = fs.readFileSync('neon/schema.sql', 'utf8');

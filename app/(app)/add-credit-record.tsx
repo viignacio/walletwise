@@ -11,6 +11,7 @@ import {
 } from 'react-native'
 import { Text, useAlertModal, DatePickerField } from '../../components/ui'
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router'
+import { useUser } from '@clerk/clerk-expo'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import {
@@ -205,6 +206,7 @@ function InstallmentPicker({ items, onSelect, onClose, onCreate }: InstallmentPi
 export default function AddCreditRecordScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
+  const { user } = useUser()
   const { installment_id } = useLocalSearchParams<{ installment_id?: string }>()
 
   const [cards, setCards] = useState<Card[]>([])
@@ -227,7 +229,8 @@ export default function AddCreditRecordScreen() {
 
   const handleCreateInstallment = async (name: string, notes: string | null) => {
     try {
-      const created = await addInstallment({ name, notes })
+      if (!user) throw new Error('Not authenticated')
+      const created = await addInstallment(user.id, { name, notes })
       setInstallments((prev) => [...prev, created])
       setSelectedInstallment(created)
     } catch (e: unknown) {
@@ -238,7 +241,7 @@ export default function AddCreditRecordScreen() {
 
   // Load cards + installments
   useEffect(() => {
-    Promise.all([getCards(), getInstallments()])
+    Promise.all([getCards(user!.id), getInstallments(user!.id)])
       .then(([c, i]) => {
         setCards(c)
         setInstallments(i)
@@ -309,7 +312,8 @@ export default function AddCreditRecordScreen() {
 
     setSaving(true)
     try {
-      await createRecord({
+      if (!user) throw new Error('Not authenticated')
+      await createRecord(user.id, {
         card_id: selectedCard.id,
         installment_id: selectedInstallment.id,
         description: description.trim(),

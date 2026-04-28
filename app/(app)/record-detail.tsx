@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
   summaryAmount: {
-    ...TextStyles.amountMd,
+    ...TextStyles.amount,
     color: Colors.text.primary,
   },
   summaryValue: {
